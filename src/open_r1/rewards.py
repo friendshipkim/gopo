@@ -642,9 +642,6 @@ def get_soft_overlong_punishment(max_completion_len, soft_punish_cache):
 
     return soft_overlong_punishment_reward
 
-def qrm_reward(completions, **kwargs):
-    return [1.0] * len(completions)
-
 def get_reward_funcs(script_args) -> list[Callable]:
     REWARD_FUNCS_REGISTRY = {
         "accuracy": accuracy_reward,
@@ -702,7 +699,7 @@ def get_reward_funcs(script_args) -> list[Callable]:
             max_completion_len=script_args.max_completion_len,
             soft_punish_cache=script_args.soft_punish_cache,
         ),
-        "qrm": qrm_reward,
+        "qrm": "nicolinho/QRM-Llama3.1-8B-v2",
     }
     reward_funcs = [REWARD_FUNCS_REGISTRY[func] for func in script_args.reward_funcs]
 
