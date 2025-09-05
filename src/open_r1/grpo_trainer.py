@@ -52,7 +52,7 @@ from trl.import_utils import is_liger_kernel_available, is_vllm_available
 from trl.models import create_reference_model, prepare_deepspeed, prepare_fsdp, unwrap_model_for_generation
 from trl.models.utils import _ForwardRedirection
 from trl.trainer.callbacks import SyncRefModelCallback
-from trl.trainer.grpo_config import GRPOConfig
+from .configs import GRPOConfig
 from trl.trainer.utils import (
     disable_dropout_in_model,
     generate_model_card,
@@ -1203,9 +1203,19 @@ class GRPOTrainer(Trainer):
         # Normalize the rewards to compute the advantages
         mean_grouped_rewards = mean_grouped_rewards.repeat_interleave(self.num_generations, dim=0)
         std_grouped_rewards = std_grouped_rewards.repeat_interleave(self.num_generations, dim=0)
-        advantages = rewards - mean_grouped_rewards
-        if self.scale_rewards:
-            advantages = advantages / (std_grouped_rewards + 1e-4)
+        
+        # Compute advantages based on config
+        if self.args.advantage == "studentization":
+            # Option 1: Studentization (normalize rewards)
+            advantages = (rewards - mean_grouped_rewards) / (std_grouped_rewards + 1e-4)
+        elif self.args.advantage == "ranking":
+            # Option 2: Ranking approach
+            rewards_grouped = rewards.view(-1, self.num_generations)  # Shape: (num_prompts, num_generations)
+            ranks = torch.argsort(torch.argsort(rewards_grouped, dim=1, descending=True), dim=1) + 1  # Shape: (num_prompts, num_generations)
+            values = 2.0 - 4.0 * (ranks.float() - 1.0) / (self.num_generations - 1)  # Shape: (num_prompts, num_generations)
+            advantages = values.view(-1)  # Shape: (num_prompts * num_generations,)
+        else:
+            raise ValueError(f"Invalid advantage method: {self.args.advantage}. Must be 'studentization' or 'ranking'")
 
         # Slice to keep only the local part of the data
         process_slice = slice(
@@ -1362,20 +1372,50 @@ class GRPOTrainer(Trainer):
         if self.args.delta is not None:
             coef_1 = torch.clamp(coef_1, max=self.args.delta)
 
-        per_token_loss1 = coef_1 * advantages.unsqueeze(1)
-        per_token_loss2 = coef_2 * advantages.unsqueeze(1)
+        # Build per-token weighting of the scalar advantage per completion according to token_broadcast strategy
+        token_broadcast = getattr(self.args, "token_broadcast", "uniform")
+        T = completion_ids.size(1)
+        B = completion_ids.size(0)
+        device = per_token_logps.device
+        if token_broadcast == "uniform":
+            weighted_advantages = advantages.unsqueeze(1)
+        else:
+            positions = torch.arange(1, T + 1, device=device, dtype=per_token_logps.dtype).unsqueeze(0).expand(B, T)
+            if token_broadcast == "log_decay":
+                decay = 1.0 / torch.log1p(positions)
+            elif token_broadcast == "poly_decay":
+                decay = 1.0 / torch.sqrt(positions)
+            elif token_broadcast == "loglog_decay":
+                decay = 1.0 / torch.log(torch.log(positions + 5))
+            else:
+                raise ValueError(
+                    f"Invalid token_broadcast: {token_broadcast}. Must be 'uniform', 'log_decay', 'poly_decay', or 'loglog_decay'"
+                )
+            weighted_advantages = advantages.unsqueeze(1) * decay
+
+        per_token_loss1 = coef_1 * weighted_advantages
+        per_token_loss2 = coef_2 * weighted_advantages
         per_token_loss = -torch.min(per_token_loss1, per_token_loss2)
         if self.beta != 0.0:
             per_token_loss = per_token_loss + self.beta * per_token_kl
+        loss = (per_token_loss * completion_mask).sum() / completion_mask.sum()
+        
+        # from TRL 1.18.0
+        # Without per-token weighting
+        # per_token_loss1 = coef_1 * advantages.unsqueeze(1)
+        # per_token_loss2 = coef_2 * advantages.unsqueeze(1)
+        # per_token_loss = -torch.min(per_token_loss1, per_token_loss2)
+        # if self.beta != 0.0:
+        #     per_token_loss = per_token_loss + self.beta * per_token_kl
 
-        if self.loss_type == "grpo":
-            loss = ((per_token_loss * completion_mask).sum(-1) / completion_mask.sum(-1).clamp(min=1.0)).mean()
-        elif self.loss_type == "bnpo":
-            loss = (per_token_loss * completion_mask).sum() / completion_mask.sum().clamp(min=1.0)
-        elif self.loss_type == "dr_grpo":
-            loss = (per_token_loss * completion_mask).sum() / (per_token_loss.size(0) * self.max_completion_length)
-        else:
-            raise ValueError(f"Unknown loss type: {self.loss_type}")
+        # if self.loss_type == "grpo":
+        #     loss = ((per_token_loss * completion_mask).sum(-1) / completion_mask.sum(-1).clamp(min=1.0)).mean()
+        # elif self.loss_type == "bnpo":
+        #     loss = (per_token_loss * completion_mask).sum() / completion_mask.sum().clamp(min=1.0)
+        # elif self.loss_type == "dr_grpo":
+        #     loss = (per_token_loss * completion_mask).sum() / (per_token_loss.size(0) * self.max_completion_length)
+        # else:
+        #     raise ValueError(f"Unknown loss type: {self.loss_type}")
 
         # Log the metrics
         mode = "train" if self.model.training else "eval"

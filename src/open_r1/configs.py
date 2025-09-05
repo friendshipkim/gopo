@@ -164,6 +164,19 @@ class GRPOConfig(trl.GRPOConfig):
         default=None,
         metadata={"help": ("The group to store runs under.")},
     )
+    advantage: str = field(
+        default="studentization",
+        metadata={"help": "Method to compute advantages: 'ranking' or 'studentization'"}
+    )
+    token_broadcast: str = field(
+        default="uniform",
+        metadata={
+            "help": (
+                "Per-token advantage weighting within completions: "
+                "'uniform' (no decay), 'log_decay' (1/log(1+t)), 'poly_decay' (1/sqrt(t)), 'loglog_decay' (1/log(log(t+5)))"
+            )
+        },
+    )
 
 
 @dataclass
