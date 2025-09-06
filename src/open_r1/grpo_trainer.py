@@ -420,6 +420,14 @@ class GRPOTrainer(Trainer):
                     "You passed `model_init_kwargs` to the `GRPOConfig`, but your model is already instantiated. "
                     "This argument can only be used when the `model` argument is a string."
                 )
+        # init args for reward functions
+        reward_init_kwargs = {
+            'revision': 'main',
+            'trust_remote_code': True,
+            'attn_implementation': 'flash_attention_2',
+            'torch_dtype': torch.bfloat16,
+            'use_cache': False,
+        }
 
         if peft_config is not None:
             if not is_peft_available():
@@ -443,7 +451,7 @@ class GRPOTrainer(Trainer):
         for i, reward_func in enumerate(reward_funcs):
             if isinstance(reward_func, str):
                 reward_funcs[i] = AutoModelForSequenceClassification.from_pretrained(
-                    reward_func, num_labels=1, **model_init_kwargs
+                    reward_func, num_labels=1, **reward_init_kwargs
                 )
             if isinstance(reward_funcs[i], nn.Module):  # Use Module over PretrainedModel for compat w/ compiled models
                 self.reward_func_names.append(reward_funcs[i].config._name_or_path.split("/")[-1])
@@ -1167,7 +1175,8 @@ class GRPOTrainer(Trainer):
                     )
                     reward_inputs = super()._prepare_inputs(reward_inputs)
                     with torch.inference_mode():
-                        rewards_per_func[:, i] = reward_func(**reward_inputs).logits[:, 0]  # Shape (B*G,)
+                        outputs = reward_func(**reward_inputs)
+                        rewards_per_func[:, i] = outputs.logits[:, 0]  # Shape (B*G,)
                 else:
                     output_reward_func = reward_func(
                         prompts=prompts, completions=completions, completion_ids=completion_ids_list, **reward_kwargs
