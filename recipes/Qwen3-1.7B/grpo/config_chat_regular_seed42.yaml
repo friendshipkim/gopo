@@ -34,8 +34,8 @@ max_completion_length: 2048
 max_steps: 300
 num_generations: 8
 num_train_epochs: 1
-output_dir: saved_models/Qwen3-1.7B-ultrachat-bsz128-regular
-run_name: Qwen3-1.7B-ultrachat-bsz128-regular
+output_dir: saved_models/Qwen3-1.7B-ultrachat-bsz128-regular-seed42
+run_name: Qwen3-1.7B-ultrachat-bsz128-regular-seed42
 overwrite_output_dir: true
 per_device_eval_batch_size: 32
 per_device_train_batch_size: 8
