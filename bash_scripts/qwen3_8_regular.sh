@@ -1,4 +1,4 @@
-export CUDA_VISIBLE_DEVICES=3
+export CUDA_VISIBLE_DEVICES=0
 export PORT=29503
 
 ACCELERATE_LOG_LEVEL=info accelerate launch \
