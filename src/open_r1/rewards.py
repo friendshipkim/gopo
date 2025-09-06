@@ -699,7 +699,7 @@ def get_reward_funcs(script_args) -> list[Callable]:
             max_completion_len=script_args.max_completion_len,
             soft_punish_cache=script_args.soft_punish_cache,
         ),
-        "qrm": "nicolinho/QRM-Llama3.1-8B-v2",
+        "qrm": "friendshipkim/QRM-Llama3.1-8B-v2",
     }
     reward_funcs = [REWARD_FUNCS_REGISTRY[func] for func in script_args.reward_funcs]
 
