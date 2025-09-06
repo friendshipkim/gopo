@@ -1,5 +1,5 @@
 # Model arguments
-model_name_or_path: Qwen/Qwen2.5-1.5B-Instruct
+model_name_or_path: Qwen/Qwen3-1.7B
 model_revision: main
 torch_dtype: bfloat16
 attn_implementation: flash_attention_2
@@ -16,7 +16,7 @@ bf16: true
 use_vllm: false
 do_eval: false
 # vllm_gpu_memory_utilization: 0.7
-gradient_accumulation_steps: 2
+gradient_accumulation_steps: 16
 gradient_checkpointing: true
 gradient_checkpointing_kwargs:
   use_reentrant: false
@@ -30,15 +30,15 @@ logging_steps: 1
 logging_strategy: steps
 lr_scheduler_type: cosine
 max_prompt_length: 512
-max_completion_length: 1024
+max_completion_length: 2048
 max_steps: 300
 num_generations: 8
 num_train_epochs: 1
-output_dir: saved_models/Qwen2.5-1.5B-Instruct-ultrachat-new-8gpus
-run_name: Qwen2.5-1.5B-Instruct-ultrachat-new-8gpus
+output_dir: saved_models/Qwen3-1.7B-ultrachat-bsz256-regular
+run_name: Qwen3-1.7B-ultrachat-bsz256-regular
 overwrite_output_dir: true
 per_device_eval_batch_size: 32
-per_device_train_batch_size: 8
+per_device_train_batch_size: 16
 push_to_hub: false
 report_to:
 - wandb
@@ -50,5 +50,5 @@ save_strategy: "steps"
 save_total_limit: 1
 seed: 42
 warmup_ratio: 0.1
-advantage: "ranking"
+advantage: "regular"
 token_broadcast: "uniform"

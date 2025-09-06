@@ -6,24 +6,22 @@ attn_implementation: flash_attention_2
 
 # Data training arguments
 dataset_name: HuggingFaceH4/ultrachat_200k
-dataset_prompt_column: prompt
-dataset_train_split: train_sft
-dataset_test_split: test_sft
 system_prompt: "You are a helpful AI Assistant that provides well-reasoned and detailed responses. You first think about the reasoning process as an internal monologue and then provide the user with the answer. Respond in the following format: <think>\n...\n</think>\n<answer>\n...\n</answer>"
 
 # GRPO trainer config
 bf16: true
-use_vllm: false
+use_vllm: true
+vllm_device: auto
+vllm_gpu_memory_utilization: 0.7
 do_eval: false
-# vllm_gpu_memory_utilization: 0.7
-gradient_accumulation_steps: 2
+gradient_accumulation_steps: 16
 gradient_checkpointing: true
 gradient_checkpointing_kwargs:
   use_reentrant: false
-# hub_model_id: Qwen3-1.7B-ultrachat-GRPO
-# hub_strategy: every_save
-learning_rate: 2.0e-05
-log_completions: true
+hub_model_id: Qwen2.5-1.5B-ultrachat-GRPO
+hub_strategy: every_save
+learning_rate: 2.0e-06
+log_completions: false
 log_level: info
 logging_first_step: true
 logging_steps: 1
@@ -31,11 +29,11 @@ logging_strategy: steps
 lr_scheduler_type: cosine
 max_prompt_length: 512
 max_completion_length: 1024
-max_steps: 300
+max_steps: -1
 num_generations: 8
 num_train_epochs: 1
-output_dir: saved_models/Qwen2.5-1.5B-Instruct-ultrachat-new-8gpus
-run_name: Qwen2.5-1.5B-Instruct-ultrachat-new-8gpus
+run_name: Qwen2.5-1.5B-ultrachat-qrm-p16-g8-ts300-steps50-oracle-studentization-loglogdecay-lr2e-6-warmup0.1-seed39
+output_dir: /root/data/oracle/Qwen2.5-1.5B-ultrachat-qrm-p16-g8-ts300-steps50-oracle-studentization-loglogdecay-lr2e-6-warmup0.1-seed39
 overwrite_output_dir: true
 per_device_eval_batch_size: 32
 per_device_train_batch_size: 8
@@ -48,7 +46,15 @@ reward_weights:
 - 1.0
 save_strategy: "steps"
 save_total_limit: 1
-seed: 42
+seed: 39
 warmup_ratio: 0.1
-advantage: "ranking"
-token_broadcast: "uniform"
+dataset_train_split: train_sft
+dataset_test_split: test_sft
+trust_remote_code: true
+save_steps: 50
+reward_record_window: 300
+advantage: studentization # ranking, studentization
+token_broadcast: loglog_decay # uniform, log_decay, poly_decay, loglog_decay
+max_steps: 300
+wandb_project: reward-impute
+use_vllm: false
