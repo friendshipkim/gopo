@@ -700,6 +700,8 @@ def get_reward_funcs(script_args) -> list[Callable]:
             soft_punish_cache=script_args.soft_punish_cache,
         ),
         "qrm": "friendshipkim/QRM-Llama3.1-8B-v2",
+        "skywork-qwen3-8b": "Skywork/Skywork-Reward-V2-Qwen3-8B",
+        "skywork-qwen3-4b": "Skywork/Skywork-Reward-V2-Qwen3-4B",
     }
     reward_funcs = [REWARD_FUNCS_REGISTRY[func] for func in script_args.reward_funcs]
 
