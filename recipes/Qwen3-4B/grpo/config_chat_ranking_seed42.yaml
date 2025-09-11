@@ -16,7 +16,7 @@ bf16: true
 use_vllm: false
 do_eval: false
 # vllm_gpu_memory_utilization: 0.7
-gradient_accumulation_steps: 128
+gradient_accumulation_steps: 16
 gradient_checkpointing: true
 gradient_checkpointing_kwargs:
   use_reentrant: false
@@ -34,11 +34,11 @@ max_completion_length: 2048
 max_steps: 300
 num_generations: 8
 num_train_epochs: 1
-output_dir: saved_models/Qwen3-4B-ultrachat-bsz128-ranking-seed42-lr2e-6
-run_name: Qwen3-4B-ultrachat-bsz128-ranking-seed42-lr2e-6
+output_dir: saved_models/Qwen3-4B-ultrachat-bsz128-ranking-seed42-lr2e-6-4gpus
+run_name: Qwen3-4B-ultrachat-bsz128-ranking-seed42-lr2e-6-4gpus
 overwrite_output_dir: true
 per_device_eval_batch_size: 32
-per_device_train_batch_size: 1
+per_device_train_batch_size: 2
 push_to_hub: false
 report_to:
 - wandb
