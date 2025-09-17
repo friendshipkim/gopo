@@ -1,5 +1,5 @@
 # Model arguments
-model_name_or_path: google/gemma-3-4b-it
+model_name_or_path: Qwen/Qwen3-8B
 model_revision: main
 torch_dtype: bfloat16
 attn_implementation: flash_attention_2
@@ -16,13 +16,13 @@ bf16: true
 use_vllm: false
 do_eval: false
 # vllm_gpu_memory_utilization: 0.7
-gradient_accumulation_steps: 128
+gradient_accumulation_steps: 16
 gradient_checkpointing: true
 gradient_checkpointing_kwargs:
   use_reentrant: false
 # hub_model_id: Qwen3-1.7B-ultrachat-GRPO
 # hub_strategy: every_save
-learning_rate: 2.0e-06
+learning_rate: 1.0e-06
 log_completions: true
 log_level: info
 logging_first_step: true
@@ -30,15 +30,15 @@ logging_steps: 1
 logging_strategy: steps
 lr_scheduler_type: cosine
 max_prompt_length: 512
-max_completion_length: 1024
+max_completion_length: 2048
 max_steps: 300
 num_generations: 8
 num_train_epochs: 1
-output_dir: saved_models/gemma3-4b-ultrachat-bsz128-ranking-lr2e-6
-run_name: gemma3-4b-ultrachat-bsz128-ranking-lr2e-6
+output_dir: saved_models/Qwen3-8B-ultrachat-bsz128-ts300-ranking-seed42-lr1e-6-4gpus
+run_name: Qwen3-8B-ultrachat-bsz128-ts300-ranking-seed42-lr1e-6-4gpus
 overwrite_output_dir: true
 per_device_eval_batch_size: 32
-per_device_train_batch_size: 1
+per_device_train_batch_size: 2
 push_to_hub: false
 report_to:
 - wandb
@@ -46,8 +46,8 @@ reward_funcs:
 - qrm
 reward_weights:
 - 1.0
-save_strategy: "steps"
-save_total_limit: 1
+save_strategy: "epoch"
+save_total_limit: 10
 seed: 42
 warmup_ratio: 0.1
 advantage: "ranking"

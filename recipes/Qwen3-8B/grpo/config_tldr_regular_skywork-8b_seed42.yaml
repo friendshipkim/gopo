@@ -23,7 +23,7 @@ gradient_checkpointing_kwargs:
   use_reentrant: false
 # hub_model_id: Qwen3-1.7B-ultrachat-GRPO
 # hub_strategy: every_save
-learning_rate: 2.0e-06
+learning_rate: 1.0e-06
 log_completions: true
 log_level: info
 logging_first_step: true
@@ -35,8 +35,8 @@ max_completion_length: 2048
 max_steps: 300
 num_generations: 8
 num_train_epochs: 1
-output_dir: saved_models/Qwen3-8B-tldr-bsz128-regular-skywork8b-seed42-lr2e-6
-run_name: Qwen3-8B-tldr-bsz128-regular-skywork8b-seed42-lr2e-6
+output_dir: saved_models/Qwen3-8B-tldr-bsz128-ts300-regular-skywork8b-seed42-lr1e-6
+run_name: Qwen3-8B-tldr-bsz128-ts300-regular-skywork8b-seed42-lr1e-6
 overwrite_output_dir: true
 per_device_eval_batch_size: 32
 per_device_train_batch_size: 2

@@ -5,5 +5,5 @@ ACCELERATE_LOG_LEVEL=info accelerate launch \
     --config_file recipes/accelerate_configs/zero3_4gpus.yaml \
     --main_process_port $PORT \
     --num_processes=4 src/open_r1/grpo.py \
-    --config recipes/Qwen3-4B/grpo/config_chat_regular_seed43.yaml \
+    --config recipes/Qwen3-8B/grpo/config_chat_regular_seed43.yaml \
     --vllm_mode="colocate"

@@ -1,15 +1,16 @@
 # Model arguments
-model_name_or_path: Qwen/Qwen3-4B
+model_name_or_path: Qwen/Qwen3-8B
 model_revision: main
 torch_dtype: bfloat16
 attn_implementation: flash_attention_2
 
 # Data training arguments
-dataset_name: HuggingFaceH4/ultrachat_200k
+dataset_name: trl-lib/tldr
 dataset_prompt_column: prompt
-dataset_train_split: train_sft
-dataset_test_split: test_sft
-system_prompt: "You are a helpful AI Assistant that provides well-reasoned and detailed responses. You first think about the reasoning process as an internal monologue and then provide the user with the answer. Respond in the following format: <think>\n...\n</think>\n<answer>\n...\n</answer>"
+dataset_train_split: train
+dataset_test_split: test
+system_prompt: "Summarize the following text in 100 words or less"
+# system_prompt: "You are a helpful AI Assistant that provides well-reasoned and detailed responses. You first think about the reasoning process as an internal monologue and then provide the user with the answer. Respond in the following format: <think>\n...\n</think>\n<answer>\n...\n</answer>"
 
 # GRPO trainer config
 bf16: true
@@ -22,7 +23,7 @@ gradient_checkpointing_kwargs:
   use_reentrant: false
 # hub_model_id: Qwen3-1.7B-ultrachat-GRPO
 # hub_strategy: every_save
-learning_rate: 2.0e-06
+learning_rate: 1.0e-06
 log_completions: true
 log_level: info
 logging_first_step: true
@@ -34,8 +35,8 @@ max_completion_length: 2048
 max_steps: 300
 num_generations: 8
 num_train_epochs: 1
-output_dir: saved_models/Qwen3-4B-ultrachat-bsz128-ranking-seed43-lr2e-6-4gpus
-run_name: Qwen3-4B-ultrachat-bsz128-ranking-seed43-lr2e-6-4gpus
+output_dir: saved_models/Qwen3-8B-tldr-bsz128-ts300-regular-skywork8b-seed43-lr1e-6
+run_name: Qwen3-8B-tldr-bsz128-ts300-regular-skywork8b-seed43-lr1e-6
 overwrite_output_dir: true
 per_device_eval_batch_size: 32
 per_device_train_batch_size: 2
@@ -43,12 +44,12 @@ push_to_hub: false
 report_to:
 - wandb
 reward_funcs:
-- qrm
+- skywork-qwen3-8b
 reward_weights:
 - 1.0
-save_strategy: "steps"
-save_total_limit: 1
+save_strategy: "epoch"
+save_total_limit: 10
 seed: 43
 warmup_ratio: 0.1
-advantage: "ranking"
+advantage: "studentization"
 token_broadcast: "uniform"
