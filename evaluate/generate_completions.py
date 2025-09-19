@@ -62,12 +62,12 @@ def format_prompt(user_message: str, tokenizer) -> str:
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": user_message},
     ]
-    if tokenizer is None:
-        return (
-            f"<|im_start|>system\n{SYSTEM_PROMPT}<|im_end|>\n"
-            f"<|im_start|>user\n{user_message}<|im_end|>\n<|im_start|>assistant\n"
-        )
-    prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+    # if tokenizer is None:
+    #     return (
+    #         f"<|im_start|>system\n{SYSTEM_PROMPT}<|im_end|>\n"
+    #         f"<|im_start|>user\n{user_message}<|im_end|>\n<|im_start|>assistant\n"
+    #     )
+    prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, enable_thinking=False)
     return prompt
 
 
@@ -195,7 +195,7 @@ def main():
         # Use only the repository name (strip organization like "org/")
         return model_path.split("/")[-1]
 
-    auto_filename = f"{repo_name(args.model1)}_vs_{repo_name(args.model2)}_{args.num_prompts}prompts_seed{args.seed}.json"
+    auto_filename = f"{repo_name(args.model1)}_vs_{repo_name(args.model2)}_{args.num_prompts}prompts_seed{args.seed}_omit_thinking.json"
     if args.output:
         # If output looks like a file (endswith .json), use it; otherwise treat as directory
         output_path = args.output if args.output.endswith(".json") else os.path.join(args.output, auto_filename)

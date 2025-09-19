@@ -44,7 +44,7 @@ def clean_judge_name(judge_model: str) -> str:
     return judge_model.replace("-", "").replace(".", "")
 
 
-def generate_output_filename(model1_path: str, model2_path: str, judge_model: str, num_votes: int, num_prompts: int, seed: int, allow_ties: bool) -> str:
+def generate_output_filename(model1_path: str, model2_path: str, judge_model: str, num_votes: int, num_prompts: int, seed: int, allow_ties: bool, completions_filename: str = "") -> str:
     def extract_name(model_path: str) -> str:
         return model_path.split("/")[-1].replace("/", "-")
     model1_name = extract_name(model1_path)
@@ -53,6 +53,8 @@ def generate_output_filename(model1_path: str, model2_path: str, judge_model: st
     base = f"{model1_name}_vs_{model2_name}_{judge_name}_{num_votes}votes_{num_prompts}prompts_seed{seed}"
     if not allow_ties:
         base += "_noties"
+    if "_omit_thinking" in completions_filename:
+        base += "_omit_thinking"
     return f"{base}.json"
 
 
@@ -308,6 +310,7 @@ def main():
         meta.get("num_prompts", len(items)),
         meta.get("seed", 42),
         allow_ties,
+        args.completions,
     )
     output_path = os.path.join(args.output_dir, filename)
     save_results(
