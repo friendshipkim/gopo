@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 """
-Judging-only CLI that mirrors the judging stage of evaluate/majority_vote.py
+Randomized judging CLI that mirrors the judging stage of evaluate/majority_vote.py
 without importing or modifying it. Reads a completions artifact JSON produced by
 generate_completions.py and runs multiple judge calls with majority voting.
+
+This version randomizes the order of completion1 and completion2 for each judge call
+to eliminate systematic bias, then maps the results back to the original order.
 """
 
 import os
 import json
 import argparse
 import re
+import random
 from typing import List, Dict, Any, Tuple
 from tqdm import tqdm
 
@@ -44,7 +48,7 @@ def clean_judge_name(judge_model: str) -> str:
     return judge_model.replace("-", "").replace(".", "")
 
 
-def generate_output_filename(model1_path: str, model2_path: str, judge_model: str, num_votes: int, num_prompts: int, seed: int, allow_ties: bool, completions_filename: str = "") -> str:
+def generate_output_filename(model1_path: str, model2_path: str, judge_model: str, num_votes: int, num_prompts: int, seed: int, allow_ties: bool, completions_filename: str = "", randomized: bool = False) -> str:
     def extract_name(model_path: str) -> str:
         return model_path.split("/")[-1].replace("/", "-")
     model1_name = extract_name(model1_path)
@@ -59,6 +63,8 @@ def generate_output_filename(model1_path: str, model2_path: str, judge_model: st
         base += "_new_instruct"
     if "_reverse" in completions_filename:
         base += "_reverse"
+    if randomized:
+        base += "_randomized"
     return f"{base}.json"
 
 
@@ -72,7 +78,17 @@ def setup_judge_client(api_key: str):
     return "openai", openai.OpenAI(api_key=api_key)
 
 
-def call_judge(api_type: str, judge_client, judge_model: str, prompt: str, response1: str, response2: str, allow_ties: bool) -> Dict[str, Any]:
+def call_judge(api_type: str, judge_client, judge_model: str, prompt: str, response1: str, response2: str, allow_ties: bool, randomize_order: bool = True) -> Dict[str, Any]:
+    # Store original order for mapping back
+    original_response1 = response1
+    original_response2 = response2
+    
+    # Randomize order if requested
+    order_swapped = False
+    if randomize_order and random.choice([True, False]):
+        response1, response2 = response2, response1
+        order_swapped = True
+    
     if allow_ties:
         # comparison_prompt = (
         #     f"You are an expert evaluator. Please compare two responses and determine which one is better.\n\n"
@@ -183,22 +199,43 @@ def call_judge(api_type: str, judge_client, judge_model: str, prompt: str, respo
             response_text = response.choices[0].message.content.strip()
 
         winner_match = re.search(r"Winner:\s*(A|B|tie)" if allow_ties else r"Winner:\s*(A|B)", response_text, re.IGNORECASE)
-        winner = "tie"
+        judge_winner = "tie"
         if winner_match:
-            w = winner_match.group(1).lower()
-            if w == "a":
-                winner = "model1"
-            elif w == "b":
-                winner = "model2"
+            judge_winner = winner_match.group(1).lower()
+        
+        # Map judge's response back to original order
+        winner = "tie"
+        if judge_winner == "a":
+            if order_swapped:
+                winner = "model2"  # A was actually original_response2
             else:
-                winner = "tie"
+                winner = "model1"  # A was original_response1
+        elif judge_winner == "b":
+            if order_swapped:
+                winner = "model1"  # B was actually original_response1
+            else:
+                winner = "model2"  # B was original_response2
+        else:
+            winner = "tie"
 
         explanation_match = re.search(r"Explanation:\s*(.+)", response_text, re.IGNORECASE | re.DOTALL)
         explanation = explanation_match.group(1).strip() if explanation_match else "No explanation provided"
-        return {"winner": winner, "explanation": explanation, "raw_response": response_text}
+        return {
+            "winner": winner, 
+            "explanation": explanation, 
+            "raw_response": response_text,
+            "order_swapped": order_swapped,
+            "judge_winner": judge_winner
+        }
     except Exception as e:
         print(f"Error calling judge API: {e}")
-        return {"winner": "tie", "explanation": f"Error during comparison: {str(e)}", "raw_response": ""}
+        return {
+            "winner": "tie", 
+            "explanation": f"Error during comparison: {str(e)}", 
+            "raw_response": "",
+            "order_swapped": order_swapped,
+            "judge_winner": "error"
+        }
 
 
 def calculate_majority_vote(individual_judgments: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -315,6 +352,11 @@ def main():
     meta, items = read_completions_artifact(args.completions)
     allow_ties = args.allow_ties and not args.no_ties
 
+    # Set random seed for reproducible randomization
+    seed = meta.get("seed", 42)
+    random.seed(seed)
+    print(f"Using random seed: {seed} for order randomization")
+
     api_type, judge_client = setup_judge_client(args.api_key)
     print(f"Using {api_type.upper()} API with judge model: {args.judge_model}")
 
@@ -326,7 +368,7 @@ def main():
 
         individual_judgments: List[Dict[str, Any]] = []
         for call_num in range(args.num_votes):
-            j = call_judge(api_type, judge_client, args.judge_model, prompt, response1, response2, allow_ties)
+            j = call_judge(api_type, judge_client, args.judge_model, prompt, response1, response2, allow_ties, randomize_order=True)
             individual_judgments.append({f"call_{call_num + 1}": j})
 
         judgments_only = [list(j.values())[0] for j in individual_judgments]
@@ -355,6 +397,7 @@ def main():
         meta.get("seed", 42),
         allow_ties,
         args.completions,
+        randomized=True,
     )
     output_path = os.path.join(args.output_dir, filename)
     save_results(

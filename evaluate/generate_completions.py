@@ -71,7 +71,7 @@ def format_prompt(user_message: str, tokenizer) -> str:
     return prompt
 
 
-def generate_completion(prompt: str, model, tokenizer, max_new_tokens: int = 1024, use_vllm: bool = False, sampling_params: Any = None) -> str:
+def generate_completion(prompt: str, model, tokenizer, max_new_tokens: int = 2048, use_vllm: bool = False, sampling_params: Any = None) -> str:
     if use_vllm:
         outputs = model.generate([prompt], sampling_params)
         return outputs[0].outputs[0].text
@@ -187,7 +187,7 @@ def main():
         "model1_path": args.model1,
         "model2_path": args.model2,
         "use_vllm": use_vllm,
-        "generation_params": {"temperature": 0.7, "top_p": 0.9, "max_new_tokens": 1024},
+        "generation_params": {"temperature": 0.7, "top_p": 0.9, "max_new_tokens": 2048},
     }
 
     # Determine output path and auto-generate a descriptive filename without org prefix
@@ -195,7 +195,7 @@ def main():
         # Use only the repository name (strip organization like "org/")
         return model_path.split("/")[-1]
 
-    auto_filename = f"{repo_name(args.model1)}_vs_{repo_name(args.model2)}_{args.num_prompts}prompts_seed{args.seed}_omit_thinking.json"
+    auto_filename = f"{repo_name(args.model1)}_vs_{repo_name(args.model2)}_{args.num_prompts}prompts_seed{args.seed}_omit_thinking_new_instruct.json"
     if args.output:
         # If output looks like a file (endswith .json), use it; otherwise treat as directory
         output_path = args.output if args.output.endswith(".json") else os.path.join(args.output, auto_filename)
