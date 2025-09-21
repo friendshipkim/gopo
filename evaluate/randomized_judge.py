@@ -165,7 +165,7 @@ def call_judge(api_type: str, judge_client, judge_model: str, prompt: str, respo
             response = judge_client.messages.create(
                 model=judge_model,
                 # max_tokens=300,
-                max_tokens=16000,
+                max_tokens=8192,
                 temperature=0.1,
                 messages=[
                     # {"role": "user", "content": f"You are an expert evaluator. Be fair and objective in your comparison. Provide clear reasoning for your choice.\n\n{comparison_prompt}"}
