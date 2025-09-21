@@ -34,37 +34,79 @@ SYSTEM_PROMPT = (
 )
 
 
-def load_validation_prompts(num_prompts: int, seed: int) -> List[str]:
+def load_validation_prompts(num_prompts: int, seed: int, model1_path: str = None, model2_path: str = None) -> tuple[List[str], str]:
     print(f"Loading {num_prompts} validation prompts...")
-    dataset = load_dataset("HuggingFaceH4/ultrachat_200k")
+    
+    # Determine dataset based on model names
+    dataset_name = "HuggingFaceH4/ultrachat_200k"  # default
     split_name = "test_sft"
+    prompt_column = "messages"
+    dataset_type = "ultrachat"
+    
+    if model1_path and model2_path:
+        if "tldr" in model1_path.lower() and "tldr" in model2_path.lower():
+            dataset_name = "trl-lib/tldr"
+            split_name = "test"
+            prompt_column = "prompt"
+            dataset_type = "tldr"
+            print("Detected tldr models, using trl-lib/tldr dataset")
+        elif "if" in model1_path.lower() and "if" in model2_path.lower():
+            dataset_name = "friendshipkim/IF-Datasets-Tulu-IFEval"
+            split_name = "test"
+            prompt_column = "prompt"
+            dataset_type = "if"
+            print("Detected IF models, using friendshipkim/IF-Datasets-Tulu-IFEval dataset")
+        else:
+            print("Using default ultrachat_200k dataset")
+    
+    dataset = load_dataset(dataset_name)
     print(f"Using {split_name} split to ensure no training data overlap")
-    prompts = dataset[split_name]["messages"]
-
-    validation_prompts: List[str] = []
-    for example in prompts:
-        for message in example:
-            if message["role"] == "user":
-                validation_prompts.append(message["content"])
-                break
+    
+    if prompt_column == "messages":
+        # For ultrachat format
+        prompts = dataset[split_name]["messages"]
+        validation_prompts: List[str] = []
+        for example in prompts:
+            for message in example:
+                if message["role"] == "user":
+                    validation_prompts.append(message["content"])
+                    break
+    else:
+        # For tldr format
+        validation_prompts = list(dataset[split_name]["prompt"])
 
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     random.shuffle(validation_prompts)
     validation_prompts = validation_prompts[:num_prompts]
-    print(f"Loaded {len(validation_prompts)} validation prompts from {split_name} split")
-    return validation_prompts
+    print(f"Loaded {len(validation_prompts)} validation prompts from {split_name} split of {dataset_name}")
+    return validation_prompts, dataset_type
 
 
-def format_prompt(user_message: str, tokenizer) -> str:
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user_message},
-    ]
+def format_prompt(user_message: str, tokenizer, dataset_type: str = "ultrachat") -> str:
+    # Use different system prompts based on dataset
+    if dataset_type == "tldr":
+        system_prompt = "Summarize the following text in 100 words or less"
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ]
+    elif dataset_type == "if":
+        # No system prompt for IF dataset
+        messages = [
+            {"role": "user", "content": user_message},
+        ]
+    else:
+        system_prompt = SYSTEM_PROMPT
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ]
+    
     # if tokenizer is None:
     #     return (
-    #         f"<|im_start|>system\n{SYSTEM_PROMPT}<|im_end|>\n"
+    #         f"<|im_start|>system\n{system_prompt}<|im_end|>\n"
     #         f"<|im_start|>user\n{user_message}<|im_end|>\n<|im_start|>assistant\n"
     #     )
     prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True, enable_thinking=False)
@@ -125,7 +167,7 @@ def main():
     torch.manual_seed(args.seed)
 
     # Load prompts
-    prompts = load_validation_prompts(args.num_prompts, args.seed)
+    prompts, dataset_type = load_validation_prompts(args.num_prompts, args.seed, args.model1, args.model2)
 
     # Initialize models mirroring majority_vote.py
     if use_vllm:
@@ -145,8 +187,8 @@ def main():
             max_model_len=8192,
         )
         sampling_params = SamplingParams(temperature=0.7, top_p=0.9, max_tokens=1024)
-        formatted_prompts1 = [format_prompt(p, None) for p in prompts]
-        formatted_prompts2 = [format_prompt(p, None) for p in prompts]
+        formatted_prompts1 = [format_prompt(p, None, dataset_type) for p in prompts]
+        formatted_prompts2 = [format_prompt(p, None, dataset_type) for p in prompts]
         completions1 = generate_completions_batch(formatted_prompts1, vllm_model1, sampling_params, desc="Generating with Model 1")
         completions2 = generate_completions_batch(formatted_prompts2, vllm_model2, sampling_params, desc="Generating with Model 2")
     else:
@@ -168,9 +210,9 @@ def main():
         completions1 = []
         completions2 = []
         for prompt in tqdm(prompts, desc="Generating completions"):
-            p1 = format_prompt(prompt, tokenizer1)
+            p1 = format_prompt(prompt, tokenizer1, dataset_type)
             c1 = generate_completion(p1, model1, tokenizer1, use_vllm=False)
-            p2 = format_prompt(prompt, tokenizer2)
+            p2 = format_prompt(prompt, tokenizer2, dataset_type)
             c2 = generate_completion(p2, model2, tokenizer2, use_vllm=False)
             completions1.append(c1)
             completions2.append(c2)
@@ -200,7 +242,7 @@ def main():
         # If output looks like a file (endswith .json), use it; otherwise treat as directory
         output_path = args.output if args.output.endswith(".json") else os.path.join(args.output, auto_filename)
     else:
-        output_path = os.path.join("completions", auto_filename)
+        output_path = os.path.join("completions_final", auto_filename)
 
     write_completions_artifact(output_path, meta, items)
 
