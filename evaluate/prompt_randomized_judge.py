@@ -164,6 +164,50 @@ def call_judge(api_type: str, judge_client, judge_model: str, prompt: str, respo
         judge_winner = "tie"
         if winner_match:
             judge_winner = winner_match.group(1).lower()
+
+        # Re-ask once with a stricter prompt when ties are not allowed and parsing didn't yield A/B
+        if not allow_ties and judge_winner not in ("a", "b"):
+            strict_prompt = (
+                comparison_prompt
+                + "\n\nSTRICT REQUIREMENT: You MUST choose either A or B. Do NOT output 'tie' under any circumstances."
+                + " Respond EXACTLY in this format (no extra text):\nWinner: [A/B]\nExplanation: [brief reason]"
+            )
+
+            if api_type == "anthropic":
+                response = judge_client.messages.create(
+                    model=judge_model,
+                    max_tokens=8192,
+                    temperature=0.1,
+                    messages=[
+                        {"role": "user", "content": strict_prompt}
+                    ],
+                )
+                response_text = response.content[0].text.strip()
+            elif "gpt-5" in judge_model.lower():
+                response = judge_client.chat.completions.create(
+                    model=judge_model,
+                    messages=[
+                        {"role": "user", "content": strict_prompt}
+                    ],
+                    max_completion_tokens=16000,
+                    response_format={"type": "text"},
+                    reasoning_effort="medium",
+                )
+                response_text = response.choices[0].message.content.strip()
+            else:
+                response = judge_client.chat.completions.create(
+                    model=judge_model,
+                    messages=[
+                        {"role": "user", "content": strict_prompt}
+                    ],
+                    temperature=0.1,
+                    max_tokens=16000,
+                )
+                response_text = response.choices[0].message.content.strip()
+
+            winner_match = re.search(r"Winner:\s*(A|B)", response_text, re.IGNORECASE)
+            if winner_match:
+                judge_winner = winner_match.group(1).lower()
         
         # Map judge's response back to original order
         winner = "tie"
