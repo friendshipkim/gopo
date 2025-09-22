@@ -308,7 +308,7 @@ def main():
     parser.add_argument("--num-votes", type=int, default=3, help="Number of votes per comparison")
     parser.add_argument("--allow-ties", action="store_true", help="Allow ties in evaluation")
     parser.add_argument("--no-ties", action="store_true", help="Disable ties in evaluation")
-    parser.add_argument("--output-dir", default="majority_evaluation", help="Directory to save results JSON")
+    parser.add_argument("--output-dir", default="random_evaluation", help="Directory to save results JSON")
     args = parser.parse_args()
 
     meta, items = read_completions_artifact(args.completions)
