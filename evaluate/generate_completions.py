@@ -242,7 +242,7 @@ def main():
         # If output looks like a file (endswith .json), use it; otherwise treat as directory
         output_path = args.output if args.output.endswith(".json") else os.path.join(args.output, auto_filename)
     else:
-        output_path = os.path.join("completions_final", auto_filename)
+        output_path = os.path.join("completion_final", auto_filename)
 
     write_completions_artifact(output_path, meta, items)
 
