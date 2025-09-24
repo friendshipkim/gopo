@@ -18,8 +18,10 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from datasets import load_dataset
 
 # Optional VLLM for fast inference (mirror majority_vote.py behavior)
+# Compatible with vLLM 0.8.5.post1+
 try:
-    from vllm import LLM, SamplingParams
+    from vllm import LLM
+    from vllm.sampling_params import SamplingParams
     VLLM_AVAILABLE = True
 except ImportError:
     print("Warning: VLLM not available. Falling back to standard transformers inference.")
@@ -56,6 +58,12 @@ def load_validation_prompts(num_prompts: int, seed: int, model1_path: str = None
             prompt_column = "prompt"
             dataset_type = "if"
             print("Detected IF models, using friendshipkim/IF-Datasets-Tulu-IFEval dataset")
+        elif "sg" in model1_path.lower() and "sg" in model2_path.lower():
+            dataset_name = "friendshipkim/RUCAIBox-Story-Generation-test"
+            split_name = "test"
+            prompt_column = "prompt"
+            dataset_type = "storygen"
+            print("Detected StoryGen models, using friendshipkim/RUCAIBox-Story-Generation-test dataset")
         else:
             print("Using default ultrachat_200k dataset")
     
@@ -92,8 +100,8 @@ def format_prompt(user_message: str, tokenizer, dataset_type: str = "ultrachat")
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
         ]
-    elif dataset_type == "if":
-        # No system prompt for IF dataset
+    elif dataset_type in ["if", "storygen"]:
+        # No system prompt for IF and StoryGen datasets
         messages = [
             {"role": "user", "content": user_message},
         ]
@@ -113,7 +121,7 @@ def format_prompt(user_message: str, tokenizer, dataset_type: str = "ultrachat")
     return prompt
 
 
-def generate_completion(prompt: str, model, tokenizer, max_new_tokens: int = 2048, use_vllm: bool = False, sampling_params: Any = None) -> str:
+def generate_completion(prompt: str, model, tokenizer, max_new_tokens: int = 2048, use_vllm: bool = False, sampling_params: Any = None, temperature: float = 0.7, top_p: float = 0.9) -> str:
     if use_vllm:
         outputs = model.generate([prompt], sampling_params)
         return outputs[0].outputs[0].text
@@ -124,15 +132,16 @@ def generate_completion(prompt: str, model, tokenizer, max_new_tokens: int = 204
             **inputs,
             max_new_tokens=max_new_tokens,
             do_sample=True,
-            temperature=0.7,
-            top_p=0.9,
+            temperature=temperature,
+            top_p=top_p,
             pad_token_id=tokenizer.eos_token_id,
             eos_token_id=tokenizer.eos_token_id,
         )
     return tokenizer.decode(outputs[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
 
 
-def generate_completions_batch(prompts: List[str], vllm_model, sampling_params: Any, desc: str) -> List[str]:
+def generate_completions_vllm(prompts: List[str], vllm_model, sampling_params: Any, desc: str) -> List[str]:
+    breakpoint()
     completions: List[str] = []
     for i in tqdm(range(0, len(prompts), 8), desc=desc):
         batch_prompts = prompts[i : i + 8]
@@ -157,6 +166,10 @@ def main():
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--no-vllm", action="store_true", help="Disable VLLM and use transformers")
     parser.add_argument("--output", required=False, help="Output file or directory for completions JSON. If omitted, saves to completions/<auto-name>.json")
+    parser.add_argument("--max-new-tokens", type=int, default=2048, help="Maximum number of new tokens to generate (default: 2048)")
+    parser.add_argument("--temperature", type=float, default=0.7, help="Temperature for sampling, higher values = more random (default: 0.7)")
+    parser.add_argument("--top-p", type=float, default=0.9, help="Top-p (nucleus) sampling threshold (default: 0.9)")
+    parser.add_argument("--vllm-gpu-memory", type=float, default=0.85, help="GPU memory utilization for vLLM (default: 0.85)")
     args = parser.parse_args()
 
     use_vllm = (not args.no_vllm) and VLLM_AVAILABLE
@@ -170,27 +183,70 @@ def main():
     prompts, dataset_type = load_validation_prompts(args.num_prompts, args.seed, args.model1, args.model2)
 
     # Initialize models mirroring majority_vote.py
+    completions1 = []
+    completions2 = []
+    
     if use_vllm:
-        print("Using VLLM for fast inference...")
-        vllm_model1 = LLM(
-            model=args.model1,
-            trust_remote_code=True,
-            tensor_parallel_size=1,
-            gpu_memory_utilization=0.9,
-            max_model_len=8192,
-        )
-        vllm_model2 = LLM(
-            model=args.model2,
-            trust_remote_code=True,
-            tensor_parallel_size=1,
-            gpu_memory_utilization=0.9,
-            max_model_len=8192,
-        )
-        sampling_params = SamplingParams(temperature=0.7, top_p=0.9, max_tokens=1024)
-        formatted_prompts1 = [format_prompt(p, None, dataset_type) for p in prompts]
-        formatted_prompts2 = [format_prompt(p, None, dataset_type) for p in prompts]
-        completions1 = generate_completions_batch(formatted_prompts1, vllm_model1, sampling_params, desc="Generating with Model 1")
-        completions2 = generate_completions_batch(formatted_prompts2, vllm_model2, sampling_params, desc="Generating with Model 2")
+        print("Using VLLM for fast inference with sequential loading...")
+        
+        # Load tokenizers for chat template formatting
+        print("Loading tokenizers for chat template formatting...")
+        tokenizer1 = AutoTokenizer.from_pretrained(args.model1, trust_remote_code=True)
+        tokenizer2 = AutoTokenizer.from_pretrained(args.model2, trust_remote_code=True)
+        
+        try:
+            sampling_params = SamplingParams(
+                temperature=args.temperature,
+                top_p=args.top_p,
+                max_tokens=args.max_new_tokens
+            )
+            
+            # Sequential loading: Load one model at a time (safer and more efficient)
+            print(f"Loading model 1: {args.model1}")
+            vllm_model1 = LLM(
+                model=args.model1,
+                trust_remote_code=True,
+                tensor_parallel_size=1,
+                gpu_memory_utilization=args.vllm_gpu_memory,
+                max_model_len=8192,
+                enforce_eager=True,
+            )
+            
+            formatted_prompts1 = [format_prompt(p, tokenizer1, dataset_type) for p in prompts]
+            completions1 = generate_completions_vllm(formatted_prompts1, vllm_model1, sampling_params, desc="Generating with Model 1")
+            
+            # Clean up model 1 from GPU memory
+            print("Cleaning up model 1 from GPU memory...")
+            del vllm_model1
+            import gc
+            import torch
+            gc.collect()
+            torch.cuda.empty_cache()
+            
+            print(f"Loading model 2: {args.model2}")
+            vllm_model2 = LLM(
+                model=args.model2,
+                trust_remote_code=True,
+                tensor_parallel_size=1,
+                gpu_memory_utilization=args.vllm_gpu_memory,
+                max_model_len=8192,
+                enforce_eager=True,
+            )
+            
+            formatted_prompts2 = [format_prompt(p, tokenizer2, dataset_type) for p in prompts]
+            completions2 = generate_completions_vllm(formatted_prompts2, vllm_model2, sampling_params, desc="Generating with Model 2")
+            
+            # Clean up model 2 from GPU memory
+            print("Cleaning up model 2 from GPU memory...")
+            del vllm_model2
+            gc.collect()
+            torch.cuda.empty_cache()
+            
+        except Exception as e:
+            print(f"Error initializing vLLM models: {e}")
+            print("Falling back to standard transformers inference...")
+            use_vllm = False
+    
     else:
         print("Using standard transformers inference...")
         tokenizer1 = AutoTokenizer.from_pretrained(args.model1, trust_remote_code=True)
@@ -211,9 +267,9 @@ def main():
         completions2 = []
         for prompt in tqdm(prompts, desc="Generating completions"):
             p1 = format_prompt(prompt, tokenizer1, dataset_type)
-            c1 = generate_completion(p1, model1, tokenizer1, use_vllm=False)
+            c1 = generate_completion(p1, model1, tokenizer1, max_new_tokens=args.max_new_tokens, use_vllm=False, temperature=args.temperature, top_p=args.top_p)
             p2 = format_prompt(prompt, tokenizer2, dataset_type)
-            c2 = generate_completion(p2, model2, tokenizer2, use_vllm=False)
+            c2 = generate_completion(p2, model2, tokenizer2, max_new_tokens=args.max_new_tokens, use_vllm=False, temperature=args.temperature, top_p=args.top_p)
             completions1.append(c1)
             completions2.append(c2)
 
@@ -229,7 +285,11 @@ def main():
         "model1_path": args.model1,
         "model2_path": args.model2,
         "use_vllm": use_vllm,
-        "generation_params": {"temperature": 0.7, "top_p": 0.9, "max_new_tokens": 2048},
+        "generation_params": {
+            "temperature": args.temperature, 
+            "top_p": args.top_p, 
+            "max_tokens" if use_vllm else "max_new_tokens": args.max_new_tokens
+        },
     }
 
     # Determine output path and auto-generate a descriptive filename without org prefix
