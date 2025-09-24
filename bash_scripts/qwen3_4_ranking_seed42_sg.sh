@@ -1,5 +1,5 @@
 export CUDA_VISIBLE_DEVICES=0,1
-export PORT=29501
+export PORT=29500
 
 ACCELERATE_LOG_LEVEL=info accelerate launch \
     --config_file recipes/accelerate_configs/zero3_2gpus.yaml \
