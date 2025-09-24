@@ -3,6 +3,13 @@
 Generation-only CLI that mirrors the generation stage of evaluate/majority_vote.py
 without importing or modifying it. Produces a reusable completions artifact JSON
 containing ordered triples of {prompt, completion1, completion2}.
+
+example usage:
+python evaluate/generate_completions.py \
+    --model1 choiqs/Qwen3-1.7B-sg-bsz128-ranking-skywork8b-seed42-lr2e-6-checkpoint200 \
+    --model2 choiqs/Qwen3-1.7B-sg-bsz128-regular-skywork8b-seed42-lr2e-6-checkpoint200 \
+    --num-prompts 100 \
+    --seed 42
 """
 
 import os
@@ -10,8 +17,9 @@ import json
 import argparse
 import random
 from typing import List, Dict, Any
-
+import gc
 import torch
+
 import numpy as np
 from tqdm import tqdm
 from transformers import AutoTokenizer, AutoModelForCausalLM
@@ -89,7 +97,7 @@ def load_validation_prompts(num_prompts: int, seed: int, model1_path: str = None
     random.shuffle(validation_prompts)
     validation_prompts = validation_prompts[:num_prompts]
     print(f"Loaded {len(validation_prompts)} validation prompts from {split_name} split of {dataset_name}")
-    return validation_prompts, dataset_type
+    return validation_prompts, dataset_type, split_name
 
 
 def format_prompt(user_message: str, tokenizer, dataset_type: str = "ultrachat") -> str:
@@ -141,13 +149,10 @@ def generate_completion(prompt: str, model, tokenizer, max_new_tokens: int = 204
 
 
 def generate_completions_vllm(prompts: List[str], vllm_model, sampling_params: Any, desc: str) -> List[str]:
-    breakpoint()
     completions: List[str] = []
-    for i in tqdm(range(0, len(prompts), 8), desc=desc):
-        batch_prompts = prompts[i : i + 8]
-        outputs = vllm_model.generate(batch_prompts, sampling_params)
-        for output in outputs:
-            completions.append(output.outputs[0].text)
+    outputs = vllm_model.generate(prompts, sampling_params)
+    for output in outputs:
+        completions.append(output.outputs[0].text)
     return completions
 
 
@@ -180,7 +185,7 @@ def main():
     torch.manual_seed(args.seed)
 
     # Load prompts
-    prompts, dataset_type = load_validation_prompts(args.num_prompts, args.seed, args.model1, args.model2)
+    prompts, dataset_type, split_name = load_validation_prompts(args.num_prompts, args.seed, args.model1, args.model2)
 
     # Initialize models mirroring majority_vote.py
     completions1 = []
@@ -210,6 +215,7 @@ def main():
                 gpu_memory_utilization=args.vllm_gpu_memory,
                 max_model_len=8192,
                 enforce_eager=True,
+                dtype="bfloat16",
             )
             
             formatted_prompts1 = [format_prompt(p, tokenizer1, dataset_type) for p in prompts]
@@ -218,8 +224,6 @@ def main():
             # Clean up model 1 from GPU memory
             print("Cleaning up model 1 from GPU memory...")
             del vllm_model1
-            import gc
-            import torch
             gc.collect()
             torch.cuda.empty_cache()
             
@@ -231,6 +235,7 @@ def main():
                 gpu_memory_utilization=args.vllm_gpu_memory,
                 max_model_len=8192,
                 enforce_eager=True,
+                dtype="bfloat16",
             )
             
             formatted_prompts2 = [format_prompt(p, tokenizer2, dataset_type) for p in prompts]
@@ -255,6 +260,7 @@ def main():
             torch_dtype=torch.bfloat16,
             device_map="auto",
             trust_remote_code=True,
+            dtype="bfloat16",
         )
         tokenizer2 = AutoTokenizer.from_pretrained(args.model2, trust_remote_code=True)
         model2 = AutoModelForCausalLM.from_pretrained(
@@ -262,6 +268,7 @@ def main():
             torch_dtype=torch.bfloat16,
             device_map="auto",
             trust_remote_code=True,
+            dtype="bfloat16",
         )
         completions1 = []
         completions2 = []
@@ -278,8 +285,8 @@ def main():
         items.append({"prompt": p, "completion1": c1, "completion2": c2})
 
     meta: Dict[str, Any] = {
-        "dataset": "HuggingFaceH4/ultrachat_200k",
-        "split": "test_sft",
+        "dataset": dataset_type,
+        "split": split_name,
         "num_prompts": args.num_prompts,
         "seed": args.seed,
         "model1_path": args.model1,
