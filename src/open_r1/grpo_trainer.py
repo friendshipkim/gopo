@@ -718,6 +718,80 @@ class GRPOTrainer(Trainer):
                         reward_func, evaluation_mode=True, device_placement=True
                     )
 
+        # Initialize reward data collection if enabled
+        self.save_reward_data = args.save_reward_data
+        if self.save_reward_data:
+            import json
+            import os
+            
+            # Set up save path
+            if args.reward_data_save_path is not None:
+                self.reward_data_save_path = args.reward_data_save_path
+            else:
+                self.reward_data_save_path = os.path.join(args.output_dir, "reward_data")
+                
+            # Create directory if it doesn't exist
+            os.makedirs(self.reward_data_save_path, exist_ok=True)
+            
+            # Initialize data collection structures
+            self.reward_data_buffer = []  # Buffer for current training step batch
+
+    def _collect_reward_data(self, prompts, completions, rewards, global_step):
+        """Collect reward data for saving to files."""
+        import json
+        
+        # Convert tensors to lists for JSON serialization
+        if isinstance(rewards, torch.Tensor):
+            rewards_list = rewards.cpu().tolist()
+        else:
+            rewards_list = rewards
+            
+        # Collect data for this batch
+        batch_data = []
+        for i, (prompt, completion, reward) in enumerate(zip(prompts, completions, rewards_list)):
+            # Convert conversational format to string if needed
+            if isinstance(prompt, list):  # conversational format
+                prompt_text = str(prompt)  # convert to string representation
+            else:
+                prompt_text = prompt
+                
+            if isinstance(completion, list):  # conversational format  
+                completion_text = str(completion)
+            else:
+                completion_text = completion
+                
+            batch_data.append({
+                "prompt": prompt_text,
+                "completion": completion_text,
+                "reward": float(reward),
+                "training_step": int(global_step),
+                "process_index": self.accelerator.process_index,
+                "rollout_index": i,
+            })
+        
+        # Save immediately since generation_batch_size generates fresh data every training step
+        self.reward_data_buffer.extend(batch_data)
+        print(f"Training step {global_step}: saving {len(batch_data)} prompt-completion pairs")
+        self._save_reward_data_buffer()
+            
+    def _save_reward_data_buffer(self):
+        """Save buffered reward data to file."""
+        if not self.reward_data_buffer:
+            return
+            
+        import json
+        
+        # Create filename with training step and process index  
+        filename = f"reward_data_step_{self.state.global_step}_proc_{self.accelerator.process_index}.json"
+        filepath = os.path.join(self.reward_data_save_path, filename)
+        
+        # Save data
+        with open(filepath, 'w') as f:
+            json.dump(self.reward_data_buffer, f, indent=2)
+            
+        # Clear buffer
+        self.reward_data_buffer.clear()
+
     def _set_signature_columns_if_needed(self):
         # If `self.args.remove_unused_columns` is True, non-signature columns are removed.
         # By default, this method sets `self._signature_columns` to the model's expected inputs.
@@ -1207,6 +1281,10 @@ class GRPOTrainer(Trainer):
 
         # Apply weights to each reward function's output and sum
         rewards = (rewards_per_func * self.reward_weights.to(device).unsqueeze(0)).nansum(dim=1)
+
+        # Save reward data if enabled
+        if self.save_reward_data:
+            self._collect_reward_data(prompts, completions, rewards, self.state.global_step)
 
         # Compute grouped-wise rewards
         mean_grouped_rewards = rewards.view(-1, self.num_generations).mean(dim=1)

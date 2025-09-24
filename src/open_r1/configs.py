@@ -177,6 +177,14 @@ class GRPOConfig(trl.GRPOConfig):
             )
         },
     )
+    save_reward_data: bool = field(
+        default=False,
+        metadata={"help": "Whether to save detailed reward data (prompts, completions, rewards, training steps) to files"},
+    )
+    reward_data_save_path: Optional[str] = field(
+        default=None,
+        metadata={"help": "Path to save reward data. If None, will use output_dir/reward_data"},
+    )
 
 
 @dataclass
