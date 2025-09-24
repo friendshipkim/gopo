@@ -6,6 +6,7 @@ Supports both individual repos and single repo with subdirectories.
 
 import os
 import argparse
+import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
@@ -72,7 +73,11 @@ def upload_hf_model_individual(model_dir, repo_name, private=False):
     
     # Load the model and tokenizer from the existing directory
     print("Loading model and tokenizer...")
-    model = AutoModelForCausalLM.from_pretrained(model_dir)
+    model = AutoModelForCausalLM.from_pretrained(
+        model_dir,
+        torch_dtype=torch.bfloat16,
+        device_map="auto"
+    )
     tokenizer = AutoTokenizer.from_pretrained(model_dir)
     
     # Push to hub
