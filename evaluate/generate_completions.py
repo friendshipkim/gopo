@@ -260,7 +260,6 @@ def main():
             torch_dtype=torch.bfloat16,
             device_map="auto",
             trust_remote_code=True,
-            dtype="bfloat16",
         )
         tokenizer2 = AutoTokenizer.from_pretrained(args.model2, trust_remote_code=True)
         model2 = AutoModelForCausalLM.from_pretrained(
@@ -268,7 +267,6 @@ def main():
             torch_dtype=torch.bfloat16,
             device_map="auto",
             trust_remote_code=True,
-            dtype="bfloat16",
         )
         completions1 = []
         completions2 = []
