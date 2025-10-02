@@ -185,6 +185,10 @@ class GRPOConfig(trl.GRPOConfig):
         default=None,
         metadata={"help": "Path to save reward data. If None, will use output_dir/reward_data"},
     )
+    reward_batch_size: Optional[int] = field(
+        default=None,
+        metadata={"help": "Batch size for neural network reward models. If None, processes all samples at once"},
+    )
 
 
 @dataclass

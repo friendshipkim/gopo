@@ -515,6 +515,9 @@ class GRPOTrainer(Trainer):
 
         # Datasets
         self.shuffle_dataset = args.shuffle_dataset
+        
+        # Reward batch size for neural network models
+        self.reward_batch_size = args.reward_batch_size
 
         if (
             isinstance(train_dataset, IterableDataset)
@@ -1248,13 +1251,35 @@ class GRPOTrainer(Trainer):
                         texts = [apply_chat_template(x, reward_processing_class)["text"] for x in messages]
                     else:
                         texts = [p + c for p, c in zip(prompts, completions)]
-                    reward_inputs = reward_processing_class(
-                        text=texts, return_tensors="pt", padding=True, padding_side="right", add_special_tokens=False
-                    )
-                    reward_inputs = super()._prepare_inputs(reward_inputs)
-                    with torch.inference_mode():
-                        outputs = reward_func(**reward_inputs)
-                        rewards_per_func[:, i] = outputs.logits[:, 0]  # Shape (B*G,)
+                    
+                    # Process in batches if reward_batch_size is specified
+                    print(f"Calling reward function with batch size {self.reward_batch_size}")
+                    if self.reward_batch_size is not None and len(texts) > self.reward_batch_size:
+                        batch_rewards = []
+                        for batch_start in range(0, len(texts), self.reward_batch_size):
+                            batch_end = min(batch_start + self.reward_batch_size, len(texts))
+                            batch_texts = texts[batch_start:batch_end]
+                            
+                            batch_reward_inputs = reward_processing_class(
+                                text=batch_texts, return_tensors="pt", padding=True, padding_side="right", add_special_tokens=False
+                            )
+                            batch_reward_inputs = super()._prepare_inputs(batch_reward_inputs)
+                            
+                            with torch.inference_mode():
+                                batch_outputs = reward_func(**batch_reward_inputs)
+                                batch_rewards.append(batch_outputs.logits[:, 0])  # Shape (batch_size,)
+                        
+                        # Concatenate all batch results
+                        rewards_per_func[:, i] = torch.cat(batch_rewards, dim=0)
+                    else:
+                        # Process all at once (original behavior)
+                        reward_inputs = reward_processing_class(
+                            text=texts, return_tensors="pt", padding=True, padding_side="right", add_special_tokens=False
+                        )
+                        reward_inputs = super()._prepare_inputs(reward_inputs)
+                        with torch.inference_mode():
+                            outputs = reward_func(**reward_inputs)
+                            rewards_per_func[:, i] = outputs.logits[:, 0]  # Shape (B*G,)
                 else:
                     output_reward_func = reward_func(
                         prompts=prompts, completions=completions, completion_ids=completion_ids_list, **reward_kwargs
