@@ -16,7 +16,7 @@ dataset_test_split: test
 bf16: true
 use_vllm: true
 do_eval: false
-vllm_gpu_memory_utilization: 0.5
+vllm_gpu_memory_utilization: 0.4
 gradient_accumulation_steps: 256
 gradient_checkpointing: true
 gradient_checkpointing_kwargs:
