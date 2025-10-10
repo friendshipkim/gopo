@@ -36,11 +36,11 @@ num_train_epochs: 1
 output_dir: saved_models/Qwen3-1.7B-ultrachat-bsz128-ranking-seed42-lr1e-6-warmup10
 run_name: Qwen3-1.7B-ultrachat-bsz128-ranking-seed42-lr1e-6-warmup10
 overwrite_output_dir: true
-per_device_eval_batch_size: 64
+per_device_eval_batch_size: 32
 per_device_train_batch_size: 8
 reward_batch_size: 128
 generation_batch_size: 1024   # Generate 128 unique prompts × 8 completions per training step  
-push_to_hub: true
+push_to_hub: false
 hub_model_id: Qwen3-1.7B-ultrachat-bsz128-ranking-seed42-lr1e-6-warmup10
 hub_strategy: all_checkpoints
 report_to:
@@ -49,7 +49,7 @@ reward_funcs:
 - qrm
 reward_weights:
 - 1.0
-eval_on_start: false
+eval_on_start: true
 eval_strategy: "steps"
 eval_steps: 25
 save_strategy: "steps"
