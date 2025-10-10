@@ -11,7 +11,7 @@ train_ds = train_ds.remove_columns(["messages"])
 test_ds = test_ds.remove_columns(["messages"])
 
 # sample 1000 from train_sft
-print("Sampling 1000 from train_sft...")
+print("Sampling 500 from train_sft...")
 val_idx = random.sample(range(len(train_ds)), 500)
 train_idx = [i for i in range(len(train_ds)) if i not in val_idx]
 val_ds = train_ds.select(val_idx)

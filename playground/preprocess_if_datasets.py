@@ -2,6 +2,7 @@
 
 import os
 from datasets import load_dataset, Value, DatasetDict
+import random
 
 train_dataset_name = "allenai/tulu-3-sft-personas-instruction-following"
 test_dataset_name = "google/IFEval"
@@ -67,8 +68,16 @@ column_order = ['id', 'prompt', 'messages', 'constraints', 'instruction_id_list_
 train_dataset = train_dataset.select_columns(column_order)
 test_dataset = test_dataset.select_columns(column_order)
 
+# sample 500 from train_dataset
+print("Sampling 500 from train_dataset...")
+val_idx = random.sample(range(len(train_dataset)), 500)
+train_idx = [i for i in range(len(train_dataset)) if i not in val_idx]
+val_dataset = train_dataset.select(val_idx)
+train_dataset = train_dataset.select(train_idx)
+
 dataset_dict = DatasetDict({
     "train": train_dataset,
+    "val": val_dataset,
     "test": test_dataset
 })
 print("processed dataset:")
