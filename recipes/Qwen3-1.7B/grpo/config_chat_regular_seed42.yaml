@@ -38,7 +38,7 @@ run_name: Qwen3-1.7B-ultrachat-bsz128-regular-seed42-lr1e-6-warmup10
 overwrite_output_dir: true
 per_device_eval_batch_size: 32
 per_device_train_batch_size: 4
-reward_batch_size: 128
+reward_batch_size: 64
 generation_batch_size: 1024   # Generate 128 unique prompts × 8 completions per training step  
 push_to_hub: false
 hub_model_id: Qwen3-1.7B-ultrachat-bsz128-regular-seed42-lr1e-6-warmup10
