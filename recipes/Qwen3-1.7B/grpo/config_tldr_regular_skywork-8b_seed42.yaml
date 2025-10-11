@@ -9,6 +9,7 @@ dataset_name: friendshipkim/tldr
 dataset_prompt_column: prompt
 dataset_train_split: train
 dataset_test_split: val
+system_prompt: "Summarize the following text in 100 words or less"
 # system_prompt: "Generate a response to the following prompt."
 # system_prompt: "You are a helpful AI Assistant that provides well-reasoned and detailed responses. You first think about the reasoning process as an internal monologue and then provide the user with the answer. Respond in the following format: <think>\n...\n</think>\n<answer>\n...\n</answer>"
 
