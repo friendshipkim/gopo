@@ -662,7 +662,7 @@ class GRPOTrainer(Trainer):
                     max_num_seqs=self.args.per_device_train_batch_size
                     * self.vllm_tensor_parallel_size
                     * self.args.gradient_accumulation_steps,
-                    max_model_len=self.max_prompt_length + self.max_completion_length,
+                    max_model_len=(self.max_prompt_length + self.max_completion_length) * 2,
                     distributed_executor_backend="external_launcher",
                     # Feed identical seed for tp groups to ensure sampling results are the same across workers
                     seed=self.accelerator.process_index // self.vllm_tensor_parallel_size,
@@ -1607,7 +1607,7 @@ class GRPOTrainer(Trainer):
                 df = pd.DataFrame(table)
                 if self.wandb_log_unique_prompts:
                     df = df.drop_duplicates(subset=["prompt"])
-                wandb.log({"completions": wandb.Table(dataframe=df)})
+                wandb.log({f"completions_step_{self.state.global_step}": wandb.Table(dataframe=df)})
 
     def create_model_card(
         self,
