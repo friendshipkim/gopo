@@ -146,12 +146,6 @@ class GRPOConfig(trl.GRPOConfig):
         default=None,
         metadata={"help": "The optional system prompt to use."},
     )
-    wandb_log_unique_prompts: bool = field(
-        default=True,
-        metadata={
-            "help": ("Whether to log the unique prompts to wandb. This will create a new run for each unique prompt.")
-        },
-    )
     wandb_entity: Optional[str] = field(
         default=None,
         metadata={"help": ("The entity to store runs under.")},

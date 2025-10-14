@@ -604,7 +604,6 @@ class GRPOTrainer(Trainer):
         self._metrics = {"train": defaultdict(list), "eval": defaultdict(list)}
         self._total_train_tokens = 0
         self.log_completions = args.log_completions
-        self.wandb_log_unique_prompts = args.wandb_log_unique_prompts
         self.num_completions_to_print = args.num_completions_to_print
         # maxlen is set to the total number of forward passes per step. This value of `maxlen` ensures we log only the
         # final optimization step.
@@ -1605,8 +1604,6 @@ class GRPOTrainer(Trainer):
                     "advantage": self._textual_logs["advantages"],
                 }
                 df = pd.DataFrame(table)
-                if self.wandb_log_unique_prompts:
-                    df = df.drop_duplicates(subset=["prompt"])
                 wandb.log({f"completions_step_{self.state.global_step}": wandb.Table(dataframe=df)})
 
     def create_model_card(
