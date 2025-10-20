@@ -2,18 +2,12 @@
 """
 Generation-only CLI that mirrors the generation stage of evaluate/majority_vote.py
 without importing or modifying it. Produces a reusable completions artifact JSON
-containing either single model completions {prompt, completion} or dual model completions {prompt, completion1, completion2}.
+containing ordered triples of {prompt, completion1, completion2}.
 
-example usage (dual model):
+example usage:
 python evaluate/generate_completions.py \
     --model1 choiqs/Qwen3-1.7B-sg-bsz128-ranking-skywork8b-seed42-lr2e-6-checkpoint200 \
     --model2 choiqs/Qwen3-1.7B-sg-bsz128-regular-skywork8b-seed42-lr2e-6-checkpoint200 \
-    --num-prompts 100 \
-    --seed 42
-
-example usage (single model):
-python evaluate/generate_completions.py \
-    --model1 choiqs/Qwen3-1.7B-sg-bsz128-ranking-skywork8b-seed42-lr2e-6-checkpoint200 \
     --num-prompts 100 \
     --seed 42
 """
@@ -50,7 +44,7 @@ SYSTEM_PROMPT = (
 )
 
 
-def load_validation_prompts(num_prompts: int, seed: int, model1_path: str = None, model2_path: str = None) -> tuple[List[str], str, str]:
+def load_validation_prompts(num_prompts: int, seed: int, model1_path: str = None, model2_path: str = None) -> tuple[List[str], str]:
     print(f"Loading {num_prompts} validation prompts...")
     
     # Determine dataset based on model names
@@ -59,47 +53,25 @@ def load_validation_prompts(num_prompts: int, seed: int, model1_path: str = None
     prompt_column = "messages"
     dataset_type = "ultrachat"
     
-    # Determine dataset based on model names (check both models if available)
-    if model1_path:
-        if "tldr" in model1_path.lower():
+    if model1_path and model2_path:
+        if "tldr" in model1_path.lower() and "tldr" in model2_path.lower():
             dataset_name = "trl-lib/tldr"
             split_name = "test"
             prompt_column = "prompt"
             dataset_type = "tldr"
-            print("Detected tldr model, using trl-lib/tldr dataset")
-        elif "if" in model1_path.lower():
+            print("Detected tldr models, using trl-lib/tldr dataset")
+        elif "if" in model1_path.lower() and "if" in model2_path.lower():
             dataset_name = "friendshipkim/IF-Datasets-Tulu-IFEval"
             split_name = "test"
             prompt_column = "prompt"
             dataset_type = "if"
-            print("Detected IF model, using friendshipkim/IF-Datasets-Tulu-IFEval dataset")
-        elif "sg" in model1_path.lower():
+            print("Detected IF models, using friendshipkim/IF-Datasets-Tulu-IFEval dataset")
+        elif "sg" in model1_path.lower() and "sg" in model2_path.lower():
             dataset_name = "friendshipkim/RUCAIBox-Story-Generation-test"
             split_name = "test"
             prompt_column = "prompt"
             dataset_type = "storygen"
-            print("Detected StoryGen model, using friendshipkim/RUCAIBox-Story-Generation-test dataset")
-        else:
-            print("Using default ultrachat_200k dataset")
-    elif model2_path:
-        if "tldr" in model2_path.lower():
-            dataset_name = "trl-lib/tldr"
-            split_name = "test"
-            prompt_column = "prompt"
-            dataset_type = "tldr"
-            print("Detected tldr model, using trl-lib/tldr dataset")
-        elif "if" in model2_path.lower():
-            dataset_name = "friendshipkim/IF-Datasets-Tulu-IFEval"
-            split_name = "test"
-            prompt_column = "prompt"
-            dataset_type = "if"
-            print("Detected IF model, using friendshipkim/IF-Datasets-Tulu-IFEval dataset")
-        elif "sg" in model2_path.lower():
-            dataset_name = "friendshipkim/RUCAIBox-Story-Generation-test"
-            split_name = "test"
-            prompt_column = "prompt"
-            dataset_type = "storygen"
-            print("Detected StoryGen model, using friendshipkim/RUCAIBox-Story-Generation-test dataset")
+            print("Detected StoryGen models, using friendshipkim/RUCAIBox-Story-Generation-test dataset")
         else:
             print("Using default ultrachat_200k dataset")
     
@@ -194,7 +166,7 @@ def write_completions_artifact(path: str, meta: Dict[str, Any], items: List[Dict
 def main():
     parser = argparse.ArgumentParser(description="Generate completions artifact for majority voting")
     parser.add_argument("--model1", required=True, help="HF path to first model")
-    parser.add_argument("--model2", required=False, help="HF path to second model (optional for single model generation)")
+    parser.add_argument("--model2", required=True, help="HF path to second model")
     parser.add_argument("--num-prompts", type=int, default=100, help="Number of validation prompts")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--no-vllm", action="store_true", help="Disable VLLM and use transformers")
@@ -214,14 +186,10 @@ def main():
 
     # Load prompts
     prompts, dataset_type, split_name = load_validation_prompts(args.num_prompts, args.seed, args.model1, args.model2)
-    
-    # Determine if this is single or dual model generation
-    single_model = args.model2 is None
-    print(f"Running in {'single' if single_model else 'dual'} model mode")
 
     # Initialize models mirroring majority_vote.py
     completions1 = []
-    completions2 = [] if not single_model else None
+    completions2 = []
     
     if use_vllm:
         print("Using VLLM for fast inference with sequential loading...")
@@ -229,7 +197,7 @@ def main():
         # Load tokenizers for chat template formatting
         print("Loading tokenizers for chat template formatting...")
         tokenizer1 = AutoTokenizer.from_pretrained(args.model1, trust_remote_code=True)
-        tokenizer2 = AutoTokenizer.from_pretrained(args.model2, trust_remote_code=True) if not single_model else None
+        tokenizer2 = AutoTokenizer.from_pretrained(args.model2, trust_remote_code=True)
         
         try:
             sampling_params = SamplingParams(
@@ -259,26 +227,25 @@ def main():
             gc.collect()
             torch.cuda.empty_cache()
             
-            if not single_model:
-                print(f"Loading model 2: {args.model2}")
-                vllm_model2 = LLM(
-                    model=args.model2,
-                    trust_remote_code=True,
-                    tensor_parallel_size=1,
-                    gpu_memory_utilization=args.vllm_gpu_memory,
-                    max_model_len=8192,
-                    enforce_eager=True,
-                    dtype="bfloat16",
-                )
-                
-                formatted_prompts2 = [format_prompt(p, tokenizer2, dataset_type) for p in prompts]
-                completions2 = generate_completions_vllm(formatted_prompts2, vllm_model2, sampling_params, desc="Generating with Model 2")
-                
-                # Clean up model 2 from GPU memory
-                print("Cleaning up model 2 from GPU memory...")
-                del vllm_model2
-                gc.collect()
-                torch.cuda.empty_cache()
+            print(f"Loading model 2: {args.model2}")
+            vllm_model2 = LLM(
+                model=args.model2,
+                trust_remote_code=True,
+                tensor_parallel_size=1,
+                gpu_memory_utilization=args.vllm_gpu_memory,
+                max_model_len=8192,
+                enforce_eager=True,
+                dtype="bfloat16",
+            )
+            
+            formatted_prompts2 = [format_prompt(p, tokenizer2, dataset_type) for p in prompts]
+            completions2 = generate_completions_vllm(formatted_prompts2, vllm_model2, sampling_params, desc="Generating with Model 2")
+            
+            # Clean up model 2 from GPU memory
+            print("Cleaning up model 2 from GPU memory...")
+            del vllm_model2
+            gc.collect()
+            torch.cuda.empty_cache()
             
         except Exception as e:
             print(f"Error initializing vLLM models: {e}")
@@ -294,73 +261,53 @@ def main():
             device_map="auto",
             trust_remote_code=True,
         )
-        
-        if not single_model:
-            tokenizer2 = AutoTokenizer.from_pretrained(args.model2, trust_remote_code=True)
-            model2 = AutoModelForCausalLM.from_pretrained(
-                args.model2,
-                torch_dtype=torch.bfloat16,
-                device_map="auto",
-                trust_remote_code=True,
-            )
-        
+        tokenizer2 = AutoTokenizer.from_pretrained(args.model2, trust_remote_code=True)
+        model2 = AutoModelForCausalLM.from_pretrained(
+            args.model2,
+            torch_dtype=torch.bfloat16,
+            device_map="auto",
+            trust_remote_code=True,
+        )
         completions1 = []
-        completions2 = [] if not single_model else None
-        
+        completions2 = []
         for prompt in tqdm(prompts, desc="Generating completions"):
             p1 = format_prompt(prompt, tokenizer1, dataset_type)
             c1 = generate_completion(p1, model1, tokenizer1, max_new_tokens=args.max_new_tokens, use_vllm=False, temperature=args.temperature, top_p=args.top_p)
+            p2 = format_prompt(prompt, tokenizer2, dataset_type)
+            c2 = generate_completion(p2, model2, tokenizer2, max_new_tokens=args.max_new_tokens, use_vllm=False, temperature=args.temperature, top_p=args.top_p)
             completions1.append(c1)
-            
-            if not single_model:
-                p2 = format_prompt(prompt, tokenizer2, dataset_type)
-                c2 = generate_completion(p2, model2, tokenizer2, max_new_tokens=args.max_new_tokens, use_vllm=False, temperature=args.temperature, top_p=args.top_p)
-                completions2.append(c2)
+            completions2.append(c2)
 
     items: List[Dict[str, str]] = []
-    if single_model:
-        for p, c1 in zip(prompts, completions1):
-            items.append({"prompt": p, "completion": c1})
-    else:
-        for p, c1, c2 in zip(prompts, completions1, completions2):
-            items.append({"prompt": p, "completion1": c1, "completion2": c2})
+    for p, c1, c2 in zip(prompts, completions1, completions2):
+        items.append({"prompt": p, "completion1": c1, "completion2": c2})
 
     meta: Dict[str, Any] = {
         "dataset": dataset_type,
         "split": split_name,
         "num_prompts": args.num_prompts,
         "seed": args.seed,
+        "model1_path": args.model1,
+        "model2_path": args.model2,
         "use_vllm": use_vllm,
         "generation_params": {
             "temperature": args.temperature, 
             "top_p": args.top_p, 
             "max_tokens" if use_vllm else "max_new_tokens": args.max_new_tokens
         },
-        "single_model": single_model,
     }
-    
-    if single_model:
-        meta["model_path"] = args.model1
-    else:
-        meta["model1_path"] = args.model1
-        meta["model2_path"] = args.model2
 
     # Determine output path and auto-generate a descriptive filename without org prefix
     def repo_name(model_path: str) -> str:
         # Use only the repository name (strip organization like "org/")
         return model_path.split("/")[-1]
 
-    if single_model:
-        # auto_filename = f"{repo_name(args.model1)}_{args.num_prompts}prompts_seed{args.seed}_omit_thinking_new_instruct.json"
-        auto_filename = f"{repo_name(args.model1)}_{args.num_prompts}prompts_seed{args.seed}.json"
-    else:
-        # auto_filename = f"{repo_name(args.model1)}_vs_{repo_name(args.model2)}_{args.num_prompts}prompts_seed{args.seed}_omit_thinking_new_instruct.json"
-        auto_filename = f"{repo_name(args.model1)}_vs_{repo_name(args.model2)}_{args.num_prompts}prompts_seed{args.seed}.json"
+    auto_filename = f"{repo_name(args.model1)}_vs_{repo_name(args.model2)}_{args.num_prompts}prompts_seed{args.seed}_omit_thinking_new_instruct.json"
     if args.output:
         # If output looks like a file (endswith .json), use it; otherwise treat as directory
         output_path = args.output if args.output.endswith(".json") else os.path.join(args.output, auto_filename)
     else:
-        output_path = os.path.join("completions_checkpoint", auto_filename)
+        output_path = os.path.join("completion_final", auto_filename)
 
     write_completions_artifact(output_path, meta, items)
 

@@ -25,6 +25,9 @@ import random
 from typing import List, Dict, Any
 import gc
 import torch
+import signal
+import threading
+import time
 
 import numpy as np
 from tqdm import tqdm
@@ -48,6 +51,19 @@ SYSTEM_PROMPT = (
     "the user with the answer. Respond in the following format: <think>\n...\n</think>\n"
     "<answer>\n...\n</answer>"
 )
+
+
+def timeout_handler(signum, frame):
+    """Handle timeout signal by force killing the process"""
+    print(f"\nTimeout reached! Force killing process to avoid VLLM cleanup issues...")
+    os._exit(0)
+
+
+def setup_timeout(timeout_seconds=300):
+    """Set up a timeout mechanism that will kill the process after timeout_seconds"""
+    signal.signal(signal.SIGALRM, timeout_handler)
+    signal.alarm(timeout_seconds)
+    print(f"Timeout set to {timeout_seconds} seconds. Process will be automatically killed if it takes longer.")
 
 
 def load_validation_prompts(num_prompts: int, seed: int, model1_path: str = None, model2_path: str = None) -> tuple[List[str], str, str]:
@@ -203,7 +219,11 @@ def main():
     parser.add_argument("--temperature", type=float, default=0.7, help="Temperature for sampling, higher values = more random (default: 0.7)")
     parser.add_argument("--top-p", type=float, default=0.9, help="Top-p (nucleus) sampling threshold (default: 0.9)")
     parser.add_argument("--vllm-gpu-memory", type=float, default=0.85, help="GPU memory utilization for vLLM (default: 0.85)")
+    parser.add_argument("--timeout", type=int, default=300, help="Timeout in seconds before force killing process (default: 300)")
     args = parser.parse_args()
+
+    # Set up timeout mechanism to prevent VLLM cleanup hanging
+    setup_timeout(args.timeout)
 
     use_vllm = (not args.no_vllm) and VLLM_AVAILABLE
 
@@ -253,12 +273,6 @@ def main():
             formatted_prompts1 = [format_prompt(p, tokenizer1, dataset_type) for p in prompts]
             completions1 = generate_completions_vllm(formatted_prompts1, vllm_model1, sampling_params, desc="Generating with Model 1")
             
-            # Clean up model 1 from GPU memory
-            print("Cleaning up model 1 from GPU memory...")
-            del vllm_model1
-            gc.collect()
-            torch.cuda.empty_cache()
-            
             if not single_model:
                 print(f"Loading model 2: {args.model2}")
                 vllm_model2 = LLM(
@@ -273,12 +287,59 @@ def main():
                 
                 formatted_prompts2 = [format_prompt(p, tokenizer2, dataset_type) for p in prompts]
                 completions2 = generate_completions_vllm(formatted_prompts2, vllm_model2, sampling_params, desc="Generating with Model 2")
-                
-                # Clean up model 2 from GPU memory
-                print("Cleaning up model 2 from GPU memory...")
-                del vllm_model2
-                gc.collect()
-                torch.cuda.empty_cache()
+            
+            # Save completions immediately after generation (before cleanup)
+            print("Saving completions artifact...")
+            items: List[Dict[str, str]] = []
+            if single_model:
+                for p, c1 in zip(prompts, completions1):
+                    items.append({"prompt": p, "completion": c1})
+            else:
+                for p, c1, c2 in zip(prompts, completions1, completions2):
+                    items.append({"prompt": p, "completion1": c1, "completion2": c2})
+
+            meta: Dict[str, Any] = {
+                "dataset": dataset_type,
+                "split": split_name,
+                "num_prompts": args.num_prompts,
+                "seed": args.seed,
+                "use_vllm": use_vllm,
+                "generation_params": {
+                    "temperature": args.temperature, 
+                    "top_p": args.top_p, 
+                    "max_tokens" if use_vllm else "max_new_tokens": args.max_new_tokens
+                },
+                "single_model": single_model,
+            }
+            
+            if single_model:
+                meta["model_path"] = args.model1
+            else:
+                meta["model1_path"] = args.model1
+                meta["model2_path"] = args.model2
+
+            # Determine output path and auto-generate a descriptive filename without org prefix
+            def repo_name(model_path: str) -> str:
+                # Use only the repository name (strip organization like "org/")
+                return model_path.split("/")[-1]
+
+            if single_model:
+                auto_filename = f"{repo_name(args.model1)}_{args.num_prompts}prompts_seed{args.seed}.json"
+            else:
+                auto_filename = f"{repo_name(args.model1)}_vs_{repo_name(args.model2)}_{args.num_prompts}prompts_seed{args.seed}.json"
+            if args.output:
+                # If output looks like a file (endswith .json), use it; otherwise treat as directory
+                output_path = args.output if args.output.endswith(".json") else os.path.join(args.output, auto_filename)
+            else:
+                output_path = os.path.join("completions_checkpoint", auto_filename)
+
+            write_completions_artifact(output_path, meta, items)
+            print(f"Completions artifact saved to {output_path}")
+            
+            # Cancel timeout since we completed successfully
+            signal.alarm(0)
+            print("Completions saved successfully. Force killing process to avoid VLLM cleanup issues...")
+            os._exit(0)
             
         except Exception as e:
             print(f"Error initializing vLLM models: {e}")
@@ -317,6 +378,8 @@ def main():
                 c2 = generate_completion(p2, model2, tokenizer2, max_new_tokens=args.max_new_tokens, use_vllm=False, temperature=args.temperature, top_p=args.top_p)
                 completions2.append(c2)
 
+    # File saving is now handled in the VLLM section above
+    # This section is only reached for transformers fallback
     items: List[Dict[str, str]] = []
     if single_model:
         for p, c1 in zip(prompts, completions1):
@@ -351,10 +414,8 @@ def main():
         return model_path.split("/")[-1]
 
     if single_model:
-        # auto_filename = f"{repo_name(args.model1)}_{args.num_prompts}prompts_seed{args.seed}_omit_thinking_new_instruct.json"
         auto_filename = f"{repo_name(args.model1)}_{args.num_prompts}prompts_seed{args.seed}.json"
     else:
-        # auto_filename = f"{repo_name(args.model1)}_vs_{repo_name(args.model2)}_{args.num_prompts}prompts_seed{args.seed}_omit_thinking_new_instruct.json"
         auto_filename = f"{repo_name(args.model1)}_vs_{repo_name(args.model2)}_{args.num_prompts}prompts_seed{args.seed}.json"
     if args.output:
         # If output looks like a file (endswith .json), use it; otherwise treat as directory
@@ -363,6 +424,12 @@ def main():
         output_path = os.path.join("completions_checkpoint", auto_filename)
 
     write_completions_artifact(output_path, meta, items)
+    print(f"Completions artifact saved to {output_path}")
+    
+    # Cancel timeout since we completed successfully
+    signal.alarm(0)
+    print("Completions saved successfully. Force killing process...")
+    os._exit(0)
 
 
 if __name__ == "__main__":
