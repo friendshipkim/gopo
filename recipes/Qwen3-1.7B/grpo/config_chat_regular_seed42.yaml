@@ -54,7 +54,7 @@ eval_strategy: "steps"
 eval_steps: 25
 save_strategy: "steps"
 save_steps: 25
-save_total_limit: 10
+save_total_limit: 100
 seed: 42
 advantage: "studentization"
 token_broadcast: "uniform"
