@@ -1,19 +1,12 @@
 #!/usr/bin/env python3
 """
-Generation-only CLI that mirrors the generation stage of evaluate/majority_vote.py
-without importing or modifying it. Produces a reusable completions artifact JSON
-containing either single model completions {prompt, completion} or dual model completions {prompt, completion1, completion2}.
+Generation-only CLI that produces a reusable completions artifact JSON
+containing single model completions {prompt, completion}.
 
-example usage (dual model):
+example usage:
 python evaluate/generate_completions.py \
-    --model1 choiqs/Qwen3-1.7B-sg-bsz128-ranking-skywork8b-seed42-lr2e-6-checkpoint200 \
-    --model2 choiqs/Qwen3-1.7B-sg-bsz128-regular-skywork8b-seed42-lr2e-6-checkpoint200 \
-    --num-prompts 100 \
-    --seed 42
-
-example usage (single model):
-python evaluate/generate_completions.py \
-    --model1 choiqs/Qwen3-1.7B-sg-bsz128-ranking-skywork8b-seed42-lr2e-6-checkpoint200 \
+    --model choiqs/Qwen3-1.7B-if-bsz128-ts500-regular-skywork8b-seed42-lr1e-6-warmup10 \
+    --checkpoint 275 \
     --num-prompts 100 \
     --seed 42
 """
@@ -192,9 +185,9 @@ def write_completions_artifact(path: str, meta: Dict[str, Any], items: List[Dict
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate completions artifact for majority voting")
-    parser.add_argument("--model1", required=True, help="HF path to first model")
-    parser.add_argument("--model2", required=False, help="HF path to second model (optional for single model generation)")
+    parser = argparse.ArgumentParser(description="Generate completions artifact for single model")
+    parser.add_argument("--model", required=True, help="HF path to model")
+    parser.add_argument("--checkpoint", type=int, default=None, help="Checkpoint number (e.g., 275, 300, etc.)")
     parser.add_argument("--num-prompts", type=int, default=100, help="Number of validation prompts")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--no-vllm", action="store_true", help="Disable VLLM and use transformers")
@@ -207,29 +200,39 @@ def main():
 
     use_vllm = (not args.no_vllm) and VLLM_AVAILABLE
 
+    # Modify model path to include checkpoint if specified  
+    base_model_path = args.model
+    if args.checkpoint:
+        args.model = f"{args.model}/checkpoint-{args.checkpoint}"
+
     # Seed
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
 
     # Load prompts
-    prompts, dataset_type, split_name = load_validation_prompts(args.num_prompts, args.seed, args.model1, args.model2)
+    prompts, dataset_type, split_name = load_validation_prompts(args.num_prompts, args.seed, args.model, None)
     
-    # Determine if this is single or dual model generation
-    single_model = args.model2 is None
-    print(f"Running in {'single' if single_model else 'dual'} model mode")
+    print("Running in single model mode")
 
-    # Initialize models mirroring majority_vote.py
-    completions1 = []
-    completions2 = [] if not single_model else None
+    # Initialize model
+    completions = []
     
     if use_vllm:
-        print("Using VLLM for fast inference with sequential loading...")
+        print("Using VLLM for fast inference...")
         
-        # Load tokenizers for chat template formatting
-        print("Loading tokenizers for chat template formatting...")
-        tokenizer1 = AutoTokenizer.from_pretrained(args.model1, trust_remote_code=True)
-        tokenizer2 = AutoTokenizer.from_pretrained(args.model2, trust_remote_code=True) if not single_model else None
+        # Load tokenizer - download from checkpoint subdirectory if specified
+        print("Loading tokenizer for chat template formatting...")
+        if args.checkpoint:
+            # Use subfolder parameter to download from checkpoint subdirectory
+            tokenizer = AutoTokenizer.from_pretrained(
+                base_model_path, 
+                subfolder=f"checkpoint-{args.checkpoint}",
+                trust_remote_code=True,
+                token=os.environ.get("HF_TOKEN")
+            )
+        else:
+            tokenizer = AutoTokenizer.from_pretrained(base_model_path, trust_remote_code=True)
         
         try:
             sampling_params = SamplingParams(
@@ -238,31 +241,24 @@ def main():
                 max_tokens=args.max_new_tokens
             )
             
-            # Sequential loading: Load one model at a time (safer and more efficient)
-            print(f"Loading model 1: {args.model1}")
-            vllm_model1 = LLM(
-                model=args.model1,
-                trust_remote_code=True,
-                tensor_parallel_size=1,
-                gpu_memory_utilization=args.vllm_gpu_memory,
-                max_model_len=8192,
-                enforce_eager=True,
-                dtype="bfloat16",
-            )
-            
-            formatted_prompts1 = [format_prompt(p, tokenizer1, dataset_type) for p in prompts]
-            completions1 = generate_completions_vllm(formatted_prompts1, vllm_model1, sampling_params, desc="Generating with Model 1")
-            
-            # Clean up model 1 from GPU memory
-            print("Cleaning up model 1 from GPU memory...")
-            del vllm_model1
-            gc.collect()
-            torch.cuda.empty_cache()
-            
-            if not single_model:
-                print(f"Loading model 2: {args.model2}")
-                vllm_model2 = LLM(
-                    model=args.model2,
+            # Load model - use base_model_path and subfolder if checkpoint specified
+            if args.checkpoint:
+                print(f"Loading model: {base_model_path} (checkpoint: {args.checkpoint})")
+                vllm_model = LLM(
+                    model=base_model_path,
+                    subfolder=f"checkpoint-{args.checkpoint}",
+                    trust_remote_code=True,
+                    tensor_parallel_size=1,
+                    gpu_memory_utilization=args.vllm_gpu_memory,
+                    max_model_len=8192,
+                    enforce_eager=True,
+                    dtype="bfloat16",
+                    token=os.environ.get("HF_TOKEN")
+                )
+            else:
+                print(f"Loading model: {base_model_path}")
+                vllm_model = LLM(
+                    model=base_model_path,
                     trust_remote_code=True,
                     tensor_parallel_size=1,
                     gpu_memory_utilization=args.vllm_gpu_memory,
@@ -270,60 +266,78 @@ def main():
                     enforce_eager=True,
                     dtype="bfloat16",
                 )
-                
-                formatted_prompts2 = [format_prompt(p, tokenizer2, dataset_type) for p in prompts]
-                completions2 = generate_completions_vllm(formatted_prompts2, vllm_model2, sampling_params, desc="Generating with Model 2")
-                
-                # Clean up model 2 from GPU memory
-                print("Cleaning up model 2 from GPU memory...")
-                del vllm_model2
-                gc.collect()
-                torch.cuda.empty_cache()
+            
+            formatted_prompts = [format_prompt(p, tokenizer, dataset_type) for p in prompts]
+            completions = generate_completions_vllm(formatted_prompts, vllm_model, sampling_params, desc="Generating completions")
             
         except Exception as e:
-            print(f"Error initializing vLLM models: {e}")
+            print(f"Error initializing vLLM model: {e}")
             print("Falling back to standard transformers inference...")
             use_vllm = False
+            # Load transformers model after vLLM failure
+            if args.checkpoint:
+                tokenizer = AutoTokenizer.from_pretrained(
+                    base_model_path,
+                    subfolder=f"checkpoint-{args.checkpoint}",
+                    trust_remote_code=True,
+                    token=os.environ.get("HF_TOKEN")
+                )
+                model = AutoModelForCausalLM.from_pretrained(
+                    base_model_path,
+                    subfolder=f"checkpoint-{args.checkpoint}",
+                    torch_dtype=torch.bfloat16,
+                    device_map="auto",
+                    trust_remote_code=True,
+                    token=os.environ.get("HF_TOKEN")
+                )
+            else:
+                tokenizer = AutoTokenizer.from_pretrained(base_model_path, trust_remote_code=True)
+                model = AutoModelForCausalLM.from_pretrained(
+                    base_model_path,
+                    torch_dtype=torch.bfloat16,
+                    device_map="auto",
+                    trust_remote_code=True,
+                )
+            
+            for prompt in tqdm(prompts, desc="Generating completions"):
+                p = format_prompt(prompt, tokenizer, dataset_type)
+                c = generate_completion(p, model, tokenizer, max_new_tokens=args.max_new_tokens, use_vllm=False, temperature=args.temperature, top_p=args.top_p)
+                completions.append(c)
     
     else:
         print("Using standard transformers inference...")
-        tokenizer1 = AutoTokenizer.from_pretrained(args.model1, trust_remote_code=True)
-        model1 = AutoModelForCausalLM.from_pretrained(
-            args.model1,
-            torch_dtype=torch.bfloat16,
-            device_map="auto",
-            trust_remote_code=True,
-        )
-        
-        if not single_model:
-            tokenizer2 = AutoTokenizer.from_pretrained(args.model2, trust_remote_code=True)
-            model2 = AutoModelForCausalLM.from_pretrained(
-                args.model2,
+        if args.checkpoint:
+            tokenizer = AutoTokenizer.from_pretrained(
+                base_model_path,
+                subfolder=f"checkpoint-{args.checkpoint}",
+                trust_remote_code=True,
+                token=os.environ.get("HF_TOKEN")
+            )
+            model = AutoModelForCausalLM.from_pretrained(
+                base_model_path,
+                subfolder=f"checkpoint-{args.checkpoint}",
+                torch_dtype=torch.bfloat16,
+                device_map="auto",
+                trust_remote_code=True,
+                token=os.environ.get("HF_TOKEN")
+            )
+        else:
+            tokenizer = AutoTokenizer.from_pretrained(base_model_path, trust_remote_code=True)
+            model = AutoModelForCausalLM.from_pretrained(
+                base_model_path,
                 torch_dtype=torch.bfloat16,
                 device_map="auto",
                 trust_remote_code=True,
             )
         
-        completions1 = []
-        completions2 = [] if not single_model else None
-        
         for prompt in tqdm(prompts, desc="Generating completions"):
-            p1 = format_prompt(prompt, tokenizer1, dataset_type)
-            c1 = generate_completion(p1, model1, tokenizer1, max_new_tokens=args.max_new_tokens, use_vllm=False, temperature=args.temperature, top_p=args.top_p)
-            completions1.append(c1)
-            
-            if not single_model:
-                p2 = format_prompt(prompt, tokenizer2, dataset_type)
-                c2 = generate_completion(p2, model2, tokenizer2, max_new_tokens=args.max_new_tokens, use_vllm=False, temperature=args.temperature, top_p=args.top_p)
-                completions2.append(c2)
+            p = format_prompt(prompt, tokenizer, dataset_type)
+            c = generate_completion(p, model, tokenizer, max_new_tokens=args.max_new_tokens, use_vllm=False, temperature=args.temperature, top_p=args.top_p)
+            completions.append(c)
 
     items: List[Dict[str, str]] = []
-    if single_model:
-        for p, c1 in zip(prompts, completions1):
-            items.append({"prompt": p, "completion": c1})
-    else:
-        for p, c1, c2 in zip(prompts, completions1, completions2):
-            items.append({"prompt": p, "completion1": c1, "completion2": c2})
+    for p, c in zip(prompts, completions):
+        items.append({"prompt": p, "completion": c})
 
     meta: Dict[str, Any] = {
         "dataset": dataset_type,
@@ -336,26 +350,20 @@ def main():
             "top_p": args.top_p, 
             "max_tokens" if use_vllm else "max_new_tokens": args.max_new_tokens
         },
-        "single_model": single_model,
+        "model_path": args.model,
     }
-    
-    if single_model:
-        meta["model_path"] = args.model1
-    else:
-        meta["model1_path"] = args.model1
-        meta["model2_path"] = args.model2
 
     # Determine output path and auto-generate a descriptive filename without org prefix
     def repo_name(model_path: str) -> str:
         # Use only the repository name (strip organization like "org/")
         return model_path.split("/")[-1]
 
-    if single_model:
-        # auto_filename = f"{repo_name(args.model1)}_{args.num_prompts}prompts_seed{args.seed}_omit_thinking_new_instruct.json"
-        auto_filename = f"{repo_name(args.model1)}_{args.num_prompts}prompts_seed{args.seed}.json"
+    base_model_name = repo_name(base_model_path)
+    if args.checkpoint:
+        auto_filename = f"{base_model_name}-checkpoint{args.checkpoint}_{args.num_prompts}prompts_seed{args.seed}.json"
     else:
-        # auto_filename = f"{repo_name(args.model1)}_vs_{repo_name(args.model2)}_{args.num_prompts}prompts_seed{args.seed}_omit_thinking_new_instruct.json"
-        auto_filename = f"{repo_name(args.model1)}_vs_{repo_name(args.model2)}_{args.num_prompts}prompts_seed{args.seed}.json"
+        auto_filename = f"{base_model_name}_{args.num_prompts}prompts_seed{args.seed}.json"
+    
     if args.output:
         # If output looks like a file (endswith .json), use it; otherwise treat as directory
         output_path = args.output if args.output.endswith(".json") else os.path.join(args.output, auto_filename)
