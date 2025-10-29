@@ -19,10 +19,10 @@ except Exception:
 
 
 DEFAULT_BASE_DIR = \
-    "/root/gopo/saved_models/Qwen3-1.7B-if-bsz128-ts500-ranking-skywork8b-seed42-lr1e-6-warmup10"
+    "/root/gopo/saved_models/Qwen3-1.7B-if-bsz128-ts500-regular-skywork8b-seed42-lr1e-6-warmup10"
 
 REPO_BASENAME = \
-    "Qwen3-1.7B-if-bsz128-ts500-ranking-skywork8b-seed42-lr1e-6-warmup10"
+    "Qwen3-1.7B-if-bsz128-ts500-regular-skywork8b-seed42-lr1e-6-warmup10"
 
 
 def parse_args() -> argparse.Namespace:
@@ -102,6 +102,10 @@ def main() -> int:
     checkpoints = build_checkpoint_numbers(args.start, args.end, args.step)
     print(f"Planned checkpoints: {checkpoints}")
 
+    # Derive repo basename from the provided base directory so repo names
+    # reflect the source model path, e.g., saved_models/<basename>.
+    repo_basename = os.path.basename(os.path.normpath(args.base_dir))
+
     uploader_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "upload_hf_model.py"))
     if not os.path.exists(uploader_path):
         print(f"Error: uploader not found at {uploader_path}")
@@ -114,7 +118,7 @@ def main() -> int:
             print(f"[SKIP] Missing checkpoint directory: {ckpt_dir}")
             continue
 
-        repo_name = f"{args.hf_username}/{REPO_BASENAME}-checkpoint{n}"
+        repo_name = f"{args.hf_username}/{repo_basename}-checkpoint{n}"
 
         if not args.no_skip_existing and repo_exists(repo_name):
             print(f"[SKIP] Repo already exists: https://huggingface.co/{repo_name}")
