@@ -1,0 +1,61 @@
+# Model arguments
+model_name_or_path: Qwen/Qwen3-1.7B
+model_revision: main
+torch_dtype: bfloat16
+attn_implementation: flash_attention_2
+
+# Data training arguments
+dataset_name: ${HF_USERNAME}/UltraChat-200k
+dataset_prompt_column: prompt
+dataset_train_split: train
+dataset_test_split: val
+system_prompt: ""
+
+# GRPO trainer config
+bf16: true
+use_vllm: true
+do_eval: false
+# vllm_gpu_memory_utilization: 0.7
+gradient_accumulation_steps: 64
+gradient_checkpointing: true
+gradient_checkpointing_kwargs:
+  use_reentrant: false
+log_completions: true
+log_level: info
+logging_first_step: true
+logging_steps: 1
+logging_strategy: steps
+lr_scheduler_type: constant_with_warmup
+warmup_steps: 10
+learning_rate: 1.0e-06
+max_prompt_length: 1024
+max_completion_length: 2048
+max_steps: 500
+num_generations: 8
+num_train_epochs: 10
+output_dir: saved_models/Qwen3-1.7B-ultrachat-bsz128-ts500-regular-seed42-lr1e-6-warmup10-4gpus
+run_name: Qwen3-1.7B-ultrachat-bsz128-ts500-regular-seed42-lr1e-6-warmup10-4gpus
+overwrite_output_dir: true
+per_device_eval_batch_size: 32
+per_device_train_batch_size: 4
+reward_batch_size: 64
+generation_batch_size: 1024   # Generate 128 unique prompts × 8 completions per training step  
+push_to_hub: false
+hub_model_id: Qwen3-1.7B-ultrachat-bsz128-ts500-regular-seed42-lr1e-6-warmup10-4gpus
+hub_strategy: all_checkpoints
+report_to:
+- wandb
+reward_funcs:
+- qrm
+reward_weights:
+- 1.0
+eval_on_start: true
+eval_strategy: "steps"
+eval_steps: 25
+save_strategy: "steps"
+save_steps: 25
+save_total_limit: 100
+seed: 42
+advantage: "studentization"
+token_broadcast: "uniform"
+vllm_mode: "colocate"
