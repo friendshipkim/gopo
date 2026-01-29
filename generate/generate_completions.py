@@ -5,7 +5,7 @@ containing single model completions {prompt, completion}.
 
 example usage:
 python evaluate/generate_completions.py \
-    --model choiqs/Qwen3-1.7B-if-bsz128-ts500-regular-skywork8b-seed42-lr1e-6-warmup10 \
+    --model "HF directory" \
     --checkpoint 275 \
     --num-prompts 100 \
     --seed 42
@@ -56,7 +56,7 @@ def load_validation_prompts(num_prompts: int, seed: int, model_path: str = None,
     if dataset_override:
         dataset_override_lower = dataset_override.lower()
         if dataset_override_lower == "if":
-            dataset_name = "friendshipkim/IF-Datasets-Tulu-IFEval"
+            dataset_name = f"{os.environ['HF_USERNAME']}/IF-Datasets-Tulu-IFEval"
             split_name = "test"
             prompt_column = "prompt"
             dataset_type = "if"
@@ -74,7 +74,7 @@ def load_validation_prompts(num_prompts: int, seed: int, model_path: str = None,
             dataset_type = "ultrachat"
             print(f"Using explicitly specified ultrachat dataset: {dataset_name}")
         elif dataset_override_lower == "storygen" or dataset_override_lower == "sg":
-            dataset_name = "friendshipkim/RUCAIBox-Story-Generation-test"
+            dataset_name = f"{os.environ['HF_USERNAME']}/RUCAIBox-Story-Generation-test"
             split_name = "test"
             prompt_column = "prompt"
             dataset_type = "storygen"
@@ -90,17 +90,17 @@ def load_validation_prompts(num_prompts: int, seed: int, model_path: str = None,
             dataset_type = "tldr"
             print("Detected tldr model, using trl-lib/tldr dataset")
         elif "if" in model_path.lower():
-            dataset_name = "friendshipkim/IF-Datasets-Tulu-IFEval"
+            dataset_name = f"{os.environ['HF_USERNAME']}/IF-Datasets-Tulu-IFEval"
             split_name = "test"
             prompt_column = "prompt"
             dataset_type = "if"
-            print("Detected IF model, using friendshipkim/IF-Datasets-Tulu-IFEval dataset")
+            print(f"Detected IF model, using {os.environ['HF_USERNAME']}/IF-Datasets-Tulu-IFEval dataset")
         elif "sg" in model_path.lower():
-            dataset_name = "friendshipkim/RUCAIBox-Story-Generation-test"
+            dataset_name = f"{os.environ['HF_USERNAME']}/RUCAIBox-Story-Generation-test"
             split_name = "test"
             prompt_column = "prompt"
             dataset_type = "storygen"
-            print("Detected StoryGen model, using friendshipkim/RUCAIBox-Story-Generation-test dataset")
+            print(f"Detected StoryGen model, using {os.environ['HF_USERNAME']}/RUCAIBox-Story-Generation-test dataset")
         else:
             print("Using default ultrachat_200k dataset")
     
