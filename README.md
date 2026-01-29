@@ -118,3 +118,101 @@ ACCELERATE_LOG_LEVEL=info accelerate launch \
 
 rm -f "$PROCESSED_CONFIG"
 ```
+
+
+## Generation
+
+The `generate/` folder contains scripts for generating model completions on evaluation datasets.
+
+### Generate Completions
+
+`generate_completions.py` generates completions from a trained model checkpoint for later evaluation.
+
+```shell
+python generate/generate_completions.py \
+    --model <path/to/model_checkpoint> \
+    --dataset chat \
+    --num-prompts 1000 \
+    --n-completions 3 \
+    --temperature 0.7 \
+    --seed 42
+```
+
+#### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `--model` | Path to model (HuggingFace path or local directory) |
+| `--dataset` | Dataset to use: `chat`, `tldr`, `if`, or `storygen` (auto-detected from model path if omitted) |
+| `--num-prompts` | Number of prompts to sample (default: 100) |
+| `--n-completions` | Number of completions per prompt (default: 1) |
+| `--temperature` | Sampling temperature (default: 0.7) |
+| `--top-p` | Top-p nucleus sampling (default: 0.9) |
+| `--max-new-tokens` | Maximum tokens to generate (default: 2048) |
+| `--seed` | Random seed for reproducibility |
+| `--output` | Output path (auto-generated if omitted) |
+| `--no-vllm` | Disable vLLM, use transformers instead |
+| `--vllm-gpu-memory` | GPU memory utilization for vLLM (default: 0.85) |
+
+#### Output Structure
+
+Completions are saved to `completions_n{N}/<model_name>_temp{T}/` with auto-generated filenames:
+
+```
+completions_n3/
+└── Qwen3-1.7B-chat-ranking_temp0.7/
+    └── Qwen3-1.7B-chat-ranking-checkpoint100_1000prompts_3completions_seed42_temp0.7.json
+```
+
+
+## Evaluation
+
+The `evaluate/` folder contains scripts for comparing model outputs using LLM-as-judge evaluation.
+
+### Bootstrap Judge Evaluation
+
+`bootstrap_judge.py` compares two models' completions using bootstrap sampling to compute win rates with confidence intervals.
+
+```shell
+python evaluate/bootstrap_judge.py \
+    --completions1 <path/to/model1_completions.json> \
+    --completions2 <path/to/model2_completions.json> \
+    --judge-model gpt-4o \
+    --api-key $OPENAI_API_KEY \
+    --N 25 \
+    --B 25 \
+    --seed 42 \
+    --no-ties
+```
+
+#### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `--completions1` | Path to first model's completions (JSON/JSONL) |
+| `--completions2` | Path to second model's completions (JSON/JSONL) |
+| `--judge-model` | LLM judge model (`gpt-4o`, `gpt-5`, `claude-3-5-sonnet`, etc.) |
+| `--api-key` | OpenAI or Anthropic API key (auto-detected by prefix) |
+| `--N` | Number of prompts to subsample per bootstrap iteration |
+| `--B` | Number of bootstrap iterations |
+| `--seed` | Random seed for reproducibility |
+| `--no-ties` | Force judge to pick a winner (no ties allowed) |
+| `--allow-ties` | Allow ties in evaluation |
+| `--completion-index` | Which completion to use from multi-completion files (default: 0) |
+| `--output-dir` | Output directory for results (default: `evaluate/`) |
+
+#### Completion File Format
+
+The script accepts JSON files with the following structure:
+
+```json
+{
+  "meta": {},
+  "items": [
+    {"prompt": "...", "completions": ["response1", "response2", ...]},
+    ...
+  ]
+}
+```
+
+Or JSONL format with one item per line containing `prompt` and `responses` fields.
